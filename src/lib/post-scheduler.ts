@@ -6,7 +6,7 @@ import { emitEvent } from './events';
 import { deliverEventToWebhooks } from './webhook-delivery';
 
 export interface CreateScheduledPostInput {
-  accountSlot: 1 | 2;
+  accountSlot: 1 | 2 | 3;
   text: string;
   scheduledTime: Date;
   communityId?: string | null;

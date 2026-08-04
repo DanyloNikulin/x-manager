@@ -1,4 +1,4 @@
-export const ACCOUNT_SLOTS = [1, 2] as const;
+export const ACCOUNT_SLOTS = [1, 2, 3] as const;
 export type AccountSlot = (typeof ACCOUNT_SLOTS)[number];
 
 export function isAccountSlot(value: number): value is AccountSlot {
@@ -25,5 +25,5 @@ export function requireAccountSlot(value: unknown, fallback?: AccountSlot): Acco
   const parsed = parseAccountSlot(value);
   if (parsed) return parsed;
   if (fallback !== undefined) return fallback;
-  throw new Error('Invalid account slot. Use 1 or 2.');
+  throw new Error('Invalid account slot. Use 1, 2, or 3.');
 }

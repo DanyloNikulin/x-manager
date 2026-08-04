@@ -4,17 +4,17 @@ import { engagementActions, xAccounts } from './db/schema';
 import { decryptAccountTokens } from './x-account-crypto';
 import { isAccountSlot, normalizeAccountSlot } from './account-slots';
 
-export function parseAccountSlot(value: unknown, fallback = 1): 1 | 2 {
-  const slot = normalizeAccountSlot(value, fallback as 1 | 2);
+export function parseAccountSlot(value: unknown, fallback = 1): 1 | 2 | 3 {
+  const slot = normalizeAccountSlot(value, fallback as 1 | 2 | 3);
   if (!isAccountSlot(slot)) {
-    throw new Error('Invalid account slot. Use 1 or 2.');
+    throw new Error('Invalid account slot. Use 1, 2, or 3.');
   }
   return slot;
 }
 
 export type ConnectedAccount = {
   id: number | null;
-  slot: 1 | 2;
+  slot: 1 | 2 | 3;
   twitterUserId: string | null;
   twitterUsername: string | null;
   twitterDisplayName: string | null;
@@ -24,7 +24,7 @@ export type ConnectedAccount = {
   updatedAt: Date | null;
 };
 
-export async function requireConnectedAccount(slot: 1 | 2): Promise<ConnectedAccount> {
+export async function requireConnectedAccount(slot: 1 | 2 | 3): Promise<ConnectedAccount> {
   const rows = await db.select().from(xAccounts).where(eq(xAccounts.slot, slot)).limit(1);
   const account = rows[0] ? decryptAccountTokens(rows[0]) : null;
   if (!account?.twitterAccessToken || !account?.twitterAccessTokenSecret) {
@@ -40,7 +40,7 @@ export async function requireConnectedAccount(slot: 1 | 2): Promise<ConnectedAcc
 
 export async function recordEngagementAction(params: {
   inboxId?: number | null;
-  accountSlot: 1 | 2;
+  accountSlot: 1 | 2 | 3;
   actionType: 'reply' | 'dm_send' | 'like' | 'repost' | 'dismiss';
   targetId?: string | null;
   payload: unknown;

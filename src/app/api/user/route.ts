@@ -48,7 +48,7 @@ export async function DELETE(req: NextRequest) {
 
     const slot = Number(slotParam);
     if (!Number.isFinite(slot) || !isAccountSlot(slot)) {
-      return NextResponse.json({ error: 'Invalid slot. Use slot=1 or slot=2.' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid slot. Use slot=1, slot=2, or slot=3.' }, { status: 400 });
     }
     await db.delete(xAccounts).where(eq(xAccounts.slot, slot));
     return NextResponse.json({ message: `X account slot ${slot} disconnected successfully.` });

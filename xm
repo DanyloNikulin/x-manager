@@ -27,10 +27,10 @@ Core:
 Info:
   readiness              GET /api/system/readiness
   manifest               GET /api/system/agent
-  list [slot]            GET /api/scheduler/posts (optional slot 1|2)
+  list [slot]            GET /api/scheduler/posts (optional slot 1|2|3)
 
 Schedule:
-  schedule --at <iso> --text <text> [--slot 1|2] [--reply-to <tweetId>] [--community <id>]
+  schedule --at <iso> --text <text> [--slot 1|2|3] [--reply-to <tweetId>] [--community <id>]
            [--file <path>]... [--thread-id <id>] [--thread-index <n>] [--source-url <url>]
 
 Media:
@@ -38,7 +38,7 @@ Media:
 
 Threads:
   thread <json-file>     POST /api/scheduler/thread with JSON body from file
-  create-thread --url <article-url> [--slot 1|2] [--max <n>] [--schedule --at <iso>] [--no-images] [--no-dedupe]
+  create-thread --url <article-url> [--slot 1|2|3] [--max <n>] [--schedule --at <iso>] [--no-images] [--no-dedupe]
                         Build thread draft from article URL (optionally schedule immediately)
 
 Env:
@@ -90,7 +90,7 @@ case "$cmd" in
     curl -sS "$XM_URL/api/system/agent"
     ;;
   list)
-    if [[ "${1:-}" =~ ^[12]$ ]]; then
+    if [[ "${1:-}" =~ ^[123]$ ]]; then
       curl -sS "$XM_URL/api/scheduler/posts?account_slot=$1"
     else
       curl -sS "$XM_URL/api/scheduler/posts"
@@ -148,8 +148,8 @@ case "$cmd" in
       exit 2
     fi
 
-    if [[ ! "$slot" =~ ^[12]$ ]]; then
-      echo "create-thread: --slot must be 1 or 2" >&2
+    if [[ ! "$slot" =~ ^[123]$ ]]; then
+      echo "create-thread: --slot must be 1, 2, or 3" >&2
       exit 2
     fi
 

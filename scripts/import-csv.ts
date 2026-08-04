@@ -70,7 +70,7 @@ function parseCliArgs(): CliOptions {
 function printUsage(): void {
   console.log(`
 Usage:
-  npm run import:csv -- --file ./tweets.csv [--dry-run] [--account-slot 1|2] [--interval-minutes 60] [--start-time "2026-02-10T09:00:00"] [--reschedule-past false]
+  npm run import:csv -- --file ./tweets.csv [--dry-run] [--account-slot 1|2|3] [--interval-minutes 60] [--start-time "2026-02-10T09:00:00"] [--reschedule-past false]
 
 Columns supported:
   text|tweet|post|content (required)

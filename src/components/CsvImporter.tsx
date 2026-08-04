@@ -198,6 +198,7 @@ export default function CsvImporter({ onImported }: CsvImporterProps) {
             >
               <option value={1}>Account 1</option>
               <option value={2}>Account 2</option>
+              <option value={3}>Account 3</option>
             </select>
           </div>
         </div>

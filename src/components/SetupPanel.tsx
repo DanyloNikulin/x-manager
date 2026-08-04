@@ -142,7 +142,7 @@ export default function SetupPanel({ onSaved }: SetupPanelProps) {
         </div>
 
         <p className="text-sm text-gray-600 dark:text-slate-300">
-          Paste your X API credentials here once, save, then connect account slot 1 and slot 2 below.
+          Paste your X API credentials here once, save, then connect account slots 1, 2, and 3 below.
         </p>
 
         {hasAnyEnvOverride && (

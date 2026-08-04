@@ -19,7 +19,7 @@ export async function GET(req: Request) {
     const conditions = [];
     if (accountSlot) {
       const slot = Number.parseInt(accountSlot, 10);
-      if (slot === 1 || slot === 2) {
+      if (slot === 1 || slot === 2 || slot === 3) {
         conditions.push(eq(scheduledActions.accountSlot, slot));
       }
     }
@@ -54,8 +54,8 @@ export async function POST(req: Request) {
       const body = (await req.json()) as ScheduleActionBody;
 
       const accountSlot = Number(body.account_slot || 1);
-      if (accountSlot !== 1 && accountSlot !== 2) {
-        return NextResponse.json({ error: 'account_slot must be 1 or 2.' }, { status: 400 });
+      if (accountSlot !== 1 && accountSlot !== 2 && accountSlot !== 3) {
+        return NextResponse.json({ error: 'account_slot must be 1, 2, or 3.' }, { status: 400 });
       }
 
       const actionType = String(body.action_type || '');

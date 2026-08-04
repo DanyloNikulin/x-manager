@@ -18,7 +18,7 @@ export async function GET(req: Request) {
     const conditions = [gte(xApiCalls.createdAt, new Date(sinceEpoch * 1000))];
     if (accountSlot) {
       const slot = Number.parseInt(accountSlot, 10);
-      if (slot === 1 || slot === 2) {
+      if (slot === 1 || slot === 2 || slot === 3) {
         conditions.push(eq(xApiCalls.accountSlot, slot));
       }
     }

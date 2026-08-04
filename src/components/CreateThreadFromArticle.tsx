@@ -167,6 +167,7 @@ export default function CreateThreadFromArticle({ onScheduled }: CreateThreadFro
             >
               <option value={1}>Slot 1</option>
               <option value={2}>Slot 2</option>
+              <option value={3}>Slot 3</option>
             </select>
           </div>
           <div>

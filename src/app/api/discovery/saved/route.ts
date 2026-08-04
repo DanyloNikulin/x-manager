@@ -31,8 +31,8 @@ export async function POST(req: Request) {
     if (keywords.length === 0) {
       return NextResponse.json({ error: 'keywords array is required.' }, { status: 400 });
     }
-    if (accountSlot !== 1 && accountSlot !== 2) {
-      return NextResponse.json({ error: 'account_slot must be 1 or 2.' }, { status: 400 });
+    if (accountSlot !== 1 && accountSlot !== 2 && accountSlot !== 3) {
+      return NextResponse.json({ error: 'account_slot must be 1, 2, or 3.' }, { status: 400 });
     }
 
     const inserted = await db.insert(savedSearches).values({

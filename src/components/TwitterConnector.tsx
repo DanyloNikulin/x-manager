@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2, Plus, AlertCircle, CheckCircle2, ExternalLink } from 'lucide-react';
+import { ACCOUNT_SLOTS } from '@/lib/account-slots';
 
 interface XAccount {
   id: number | null;
@@ -162,9 +163,7 @@ export default function TwitterConnector({ onConnectionChange }: TwitterConnecto
 
   const findFirstEmptySlot = (): number | null => {
     const usedSlots = new Set(connectedAccounts.map((a) => a.slot));
-    if (!usedSlots.has(1)) return 1;
-    if (!usedSlots.has(2)) return 2;
-    return null;
+    return ACCOUNT_SLOTS.find((slot) => !usedSlots.has(slot)) ?? null;
   };
 
   const handleConnect = async () => {
@@ -422,7 +421,7 @@ export default function TwitterConnector({ onConnectionChange }: TwitterConnecto
             ))}
 
             {/* Add another account button */}
-            {connectedCount < 2 && !oobState && (
+            {connectedCount < ACCOUNT_SLOTS.length && !oobState && (
               <button
                 onClick={handleConnect}
                 disabled={isConnecting}

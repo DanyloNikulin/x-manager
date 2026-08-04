@@ -62,8 +62,8 @@ export async function POST(req: Request) {
     if (!['like', 'reply', 'repost', 'schedule_post', 'send_dm', 'dismiss', 'tag', 'webhook'].includes(actionType)) {
       return NextResponse.json({ error: 'Invalid action_type.' }, { status: 400 });
     }
-    if (accountSlot !== 1 && accountSlot !== 2) {
-      return NextResponse.json({ error: 'account_slot must be 1 or 2.' }, { status: 400 });
+    if (accountSlot !== 1 && accountSlot !== 2 && accountSlot !== 3) {
+      return NextResponse.json({ error: 'account_slot must be 1, 2, or 3.' }, { status: 400 });
     }
 
     const triggerConfig = asObject(body.trigger_config) ?? {};

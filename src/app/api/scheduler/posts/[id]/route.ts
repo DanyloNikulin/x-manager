@@ -70,7 +70,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (accountSlotRaw !== null) {
       const parsed = parseAccountSlot(accountSlotRaw);
       if (!parsed) {
-        return NextResponse.json({ error: 'Invalid account_slot. Use 1 or 2.' }, { status: 400 });
+        return NextResponse.json({ error: 'Invalid account_slot. Use 1, 2, or 3.' }, { status: 400 });
       }
       accountSlot = parsed;
     }
@@ -173,7 +173,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if ('account_slot' in body) {
       const parsed = parseAccountSlot(body.account_slot);
       if (!parsed) {
-        return NextResponse.json({ error: 'Invalid account_slot. Use 1 or 2.' }, { status: 400 });
+        return NextResponse.json({ error: 'Invalid account_slot. Use 1, 2, or 3.' }, { status: 400 });
       }
       accountSlot = parsed;
     }

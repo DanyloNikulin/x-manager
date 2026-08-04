@@ -25,7 +25,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       updates.url = body.url.trim();
     }
     if (typeof body.title === 'string') updates.title = body.title.trim();
-    if (body.account_slot === 1 || body.account_slot === 2) updates.accountSlot = body.account_slot;
+    if (body.account_slot === 1 || body.account_slot === 2 || body.account_slot === 3) updates.accountSlot = body.account_slot;
     if (body.check_interval_minutes != null) updates.checkIntervalMinutes = Math.max(5, Number(body.check_interval_minutes));
     if (body.auto_schedule === true || body.auto_schedule === false) updates.autoSchedule = body.auto_schedule;
     if (typeof body.template === 'string' || body.template === null) updates.template = body.template as string | null;

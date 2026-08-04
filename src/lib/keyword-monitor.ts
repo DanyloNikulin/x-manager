@@ -79,7 +79,7 @@ export async function runKeywordMonitor(logger: Logger): Promise<void> {
           }
 
           await runKeywordTriggeredRules({
-            accountSlot: search.accountSlot as 1 | 2,
+            accountSlot: search.accountSlot as 1 | 2 | 3,
             searchId: search.id,
             matchId: topic.id,
             text: topic.text,
@@ -88,7 +88,7 @@ export async function runKeywordMonitor(logger: Logger): Promise<void> {
           }, logger);
 
           if (search.autoAction === 'like') {
-            const account = await requireConnectedAccount(search.accountSlot as 1 | 2);
+            const account = await requireConnectedAccount(search.accountSlot as 1 | 2 | 3);
             if (!account.twitterUserId) {
               logger.warn(`Saved search ${search.id}: connected account missing twitter user id, skipping like.`);
               continue;
@@ -96,7 +96,7 @@ export async function runKeywordMonitor(logger: Logger): Promise<void> {
             await likeTweet(account.twitterAccessToken, account.twitterAccessTokenSecret, account.twitterUserId, topic.id);
             await db.update(savedSearchMatches).set({ actionStatus: 'liked' }).where(eq(savedSearchMatches.id, inserted[0].id));
             await recordEngagementAction({
-              accountSlot: search.accountSlot as 1 | 2,
+              accountSlot: search.accountSlot as 1 | 2 | 3,
               actionType: 'like',
               targetId: topic.id,
               payload: { searchId: search.id, url: topic.url },
@@ -115,7 +115,7 @@ export async function runKeywordMonitor(logger: Logger): Promise<void> {
               continue;
             }
 
-            const account = await requireConnectedAccount(search.accountSlot as 1 | 2);
+            const account = await requireConnectedAccount(search.accountSlot as 1 | 2 | 3);
             const replyResult = await postTweet(text, account.twitterAccessToken, account.twitterAccessTokenSecret, [], undefined, topic.id);
             if (replyResult.errors?.length) {
               logger.error(`Reply failed for match ${topic.id}:`, replyResult.errors.map((entry) => entry.message).join(' '));
@@ -124,7 +124,7 @@ export async function runKeywordMonitor(logger: Logger): Promise<void> {
 
             await db.update(savedSearchMatches).set({ actionStatus: 'replied' }).where(eq(savedSearchMatches.id, inserted[0].id));
             await recordEngagementAction({
-              accountSlot: search.accountSlot as 1 | 2,
+              accountSlot: search.accountSlot as 1 | 2 | 3,
               actionType: 'reply',
               targetId: topic.id,
               payload: { searchId: search.id, text },

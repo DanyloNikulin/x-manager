@@ -398,7 +398,7 @@ export async function runScheduledAutomationRules(logger: Logger = defaultLogger
 }
 
 export async function runKeywordTriggeredRules(input: {
-  accountSlot: 1 | 2;
+  accountSlot: 1 | 2 | 3;
   searchId?: number;
   matchId: string;
   text: string;

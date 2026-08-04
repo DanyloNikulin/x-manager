@@ -27,7 +27,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const body = await req.json() as Record<string, unknown>;
     const updates: Partial<typeof savedSearches.$inferInsert> = { updatedAt: new Date() };
     if (Array.isArray(body.keywords)) updates.keywords = JSON.stringify(body.keywords.map((value) => String(value).trim()).filter(Boolean));
-    if (body.account_slot === 1 || body.account_slot === 2) updates.accountSlot = body.account_slot;
+    if (body.account_slot === 1 || body.account_slot === 2 || body.account_slot === 3) updates.accountSlot = body.account_slot;
     if (body.check_interval_minutes != null) updates.checkIntervalMinutes = Math.max(5, Number(body.check_interval_minutes));
     if (body.auto_action === 'like' || body.auto_action === 'reply' || body.auto_action === null) updates.autoAction = body.auto_action as 'like' | 'reply' | null;
     if (typeof body.reply_template === 'string' || body.reply_template === null) updates.replyTemplate = body.reply_template as string | null;

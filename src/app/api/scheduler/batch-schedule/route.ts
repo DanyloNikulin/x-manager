@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     if (isProvided(rawSlot)) {
       const parsed = parseAccountSlot(rawSlot);
       if (!parsed) {
-        return NextResponse.json({ error: 'Invalid account_slot. Use 1 or 2.' }, { status: 400 });
+        return NextResponse.json({ error: 'Invalid account_slot. Use 1, 2, or 3.' }, { status: 400 });
       }
       accountSlot = parsed;
     }

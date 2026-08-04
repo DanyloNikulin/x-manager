@@ -16,7 +16,7 @@ export async function GET(req: Request) {
     if (slotParam !== null) {
       const parsed = Number(slotParam);
       if (!Number.isFinite(parsed) || !isAccountSlot(parsed)) {
-        return NextResponse.json({ error: 'Invalid account_slot. Use 1 or 2.' }, { status: 400 });
+        return NextResponse.json({ error: 'Invalid account_slot. Use 1, 2, or 3.' }, { status: 400 });
       }
       accountSlot = parsed;
     }

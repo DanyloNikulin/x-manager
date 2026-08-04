@@ -26,7 +26,7 @@ const DEFAULT_POLICY: SlotPolicy = {
   timezone: 'UTC',
 };
 
-function settingKey(slot: 1 | 2): string {
+function settingKey(slot: 1 | 2 | 3): string {
   return `policy_slot_${slot}`;
 }
 
@@ -34,7 +34,7 @@ function settingKey(slot: 1 | 2): string {
 // Read / write policy
 // ---------------------------------------------------------------------------
 
-export async function getSlotPolicy(slot: 1 | 2): Promise<SlotPolicy> {
+export async function getSlotPolicy(slot: 1 | 2 | 3): Promise<SlotPolicy> {
   const rows = await db
     .select()
     .from(appSettings)
@@ -54,7 +54,7 @@ export async function getSlotPolicy(slot: 1 | 2): Promise<SlotPolicy> {
 }
 
 export async function saveSlotPolicy(
-  slot: 1 | 2,
+  slot: 1 | 2 | 3,
   policy: Partial<SlotPolicy>,
 ): Promise<void> {
   const existing = await getSlotPolicy(slot);
@@ -120,7 +120,7 @@ function isInsideWindow(
 type CountRow = { cnt: number };
 
 /** Count scheduled_posts for a slot created within [sinceEpoch, now]. */
-function countRecentPosts(slot: 1 | 2, sinceEpoch: number): number {
+function countRecentPosts(slot: 1 | 2 | 3, sinceEpoch: number): number {
   const row = sqlite
     .prepare(
       `SELECT COUNT(*) AS cnt
@@ -135,7 +135,7 @@ function countRecentPosts(slot: 1 | 2, sinceEpoch: number): number {
 
 /** Count engagement_actions for a slot + action_type created since `sinceEpoch`. */
 function countRecentEngagementActions(
-  slot: 1 | 2,
+  slot: 1 | 2 | 3,
   actionType: string,
   sinceEpoch: number,
 ): number {
@@ -153,7 +153,7 @@ function countRecentEngagementActions(
 
 /** Count scheduled_actions for a slot + action_type scheduled since `sinceEpoch`. */
 function countRecentScheduledActions(
-  slot: 1 | 2,
+  slot: 1 | 2 | 3,
   actionType: string,
   sinceEpoch: number,
 ): number {
@@ -175,7 +175,7 @@ function countRecentScheduledActions(
 // ---------------------------------------------------------------------------
 
 export type CheckPolicyParams = {
-  slot: 1 | 2;
+  slot: 1 | 2 | 3;
   actionType: 'post' | 'reply' | 'dm' | 'like' | 'repost';
   scheduledTime?: Date;
 };

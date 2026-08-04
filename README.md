@@ -146,7 +146,7 @@ npm run import:csv -- --file ./posts.csv --account-slot 2
 
 ### Multi-Account Support
 
-Connect up to **2 X accounts** (slot 1 and slot 2). Each account has its own OAuth credentials, and you can target posts to either account.
+Connect up to **3 X accounts** (slots 1, 2, and 3). Each account has its own OAuth credentials, and you can target posts to any connected account.
 
 ### Engagement Inbox
 

@@ -8,11 +8,11 @@ export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const slot = Number(url.searchParams.get('slot') || 1);
-    if (slot !== 1 && slot !== 2) {
-      return NextResponse.json({ error: 'slot must be 1 or 2.' }, { status: 400 });
+    if (slot !== 1 && slot !== 2 && slot !== 3) {
+      return NextResponse.json({ error: 'slot must be 1, 2, or 3.' }, { status: 400 });
     }
 
-    const policy = await getSlotPolicy(slot as 1 | 2);
+    const policy = await getSlotPolicy(slot as 1 | 2 | 3);
     return NextResponse.json({ policy, slot });
   } catch (error) {
     console.error('Failed to get policy:', error);
@@ -24,14 +24,14 @@ export async function PUT(req: Request) {
   try {
     const body = (await req.json()) as { slot?: unknown; [key: string]: unknown };
     const slot = Number(body.slot || 1);
-    if (slot !== 1 && slot !== 2) {
-      return NextResponse.json({ error: 'slot must be 1 or 2.' }, { status: 400 });
+    if (slot !== 1 && slot !== 2 && slot !== 3) {
+      return NextResponse.json({ error: 'slot must be 1, 2, or 3.' }, { status: 400 });
     }
 
     const { slot: _slot, ...policyUpdates } = body;
-    await saveSlotPolicy(slot as 1 | 2, policyUpdates as Record<string, unknown>);
+    await saveSlotPolicy(slot as 1 | 2 | 3, policyUpdates as Record<string, unknown>);
 
-    const updated = await getSlotPolicy(slot as 1 | 2);
+    const updated = await getSlotPolicy(slot as 1 | 2 | 3);
     return NextResponse.json({ ok: true, policy: updated, slot });
   } catch (error) {
     console.error('Failed to update policy:', error);
@@ -48,8 +48,8 @@ export async function POST(req: Request) {
     };
 
     const slot = Number(body.slot || 1);
-    if (slot !== 1 && slot !== 2) {
-      return NextResponse.json({ error: 'slot must be 1 or 2.' }, { status: 400 });
+    if (slot !== 1 && slot !== 2 && slot !== 3) {
+      return NextResponse.json({ error: 'slot must be 1, 2, or 3.' }, { status: 400 });
     }
 
     const actionType = String(body.action_type || '');
@@ -60,7 +60,7 @@ export async function POST(req: Request) {
     const scheduledTime = typeof body.scheduled_time === 'string' ? new Date(body.scheduled_time) : undefined;
 
     const result = await checkPolicy({
-      slot: slot as 1 | 2,
+      slot: slot as 1 | 2 | 3,
       actionType: actionType as 'post' | 'reply' | 'dm' | 'like' | 'repost',
       scheduledTime,
     });

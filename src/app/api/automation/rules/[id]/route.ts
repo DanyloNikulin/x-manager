@@ -52,7 +52,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
     if (body.action_config && asObject(body.action_config)) updates.actionConfig = JSON.stringify(body.action_config);
     if (body.enabled === true || body.enabled === false) updates.enabled = body.enabled;
-    if (body.account_slot === 1 || body.account_slot === 2) updates.accountSlot = body.account_slot;
+    if (body.account_slot === 1 || body.account_slot === 2 || body.account_slot === 3) updates.accountSlot = body.account_slot;
 
     const updated = await db.update(automationRules).set(updates).where(eq(automationRules.id, ruleId)).returning();
     if (!updated[0]) {

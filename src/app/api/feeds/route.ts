@@ -25,8 +25,8 @@ export async function POST(req: Request) {
     if (!url) {
       return NextResponse.json({ error: 'url is required.' }, { status: 400 });
     }
-    if (accountSlot !== 1 && accountSlot !== 2) {
-      return NextResponse.json({ error: 'account_slot must be 1 or 2.' }, { status: 400 });
+    if (accountSlot !== 1 && accountSlot !== 2 && accountSlot !== 3) {
+      return NextResponse.json({ error: 'account_slot must be 1, 2, or 3.' }, { status: 400 });
     }
 
     await assertPublicUrl(url);

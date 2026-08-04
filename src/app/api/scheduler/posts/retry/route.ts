@@ -83,7 +83,7 @@ export async function POST(req: Request) {
 
     const slotRaw = asInt(body.account_slot);
     if (slotRaw !== null && !isAccountSlot(slotRaw)) {
-      return NextResponse.json({ error: 'Invalid account_slot. Use 1 or 2.' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid account_slot. Use 1, 2, or 3.' }, { status: 400 });
     }
 
     const conditions = [];

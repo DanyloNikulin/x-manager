@@ -240,8 +240,8 @@ Error:
 
 ## Account Policy
 
-1. Post only as `swarm_signal` (account_slot 1).
-2. Do not post as `getboski` (account_slot 2) unless explicitly instructed and bridge allowlist is updated.
+1. Default to `swarm_signal` (account_slot 1).
+2. Use `bored_tools` (account_slot 2) or `cannaexplained` (account_slot 3) only when explicitly instructed.
 
 ## Security Controls
 
@@ -254,7 +254,7 @@ Error:
 ## Best Practices
 
 1. **Always dry run first** - Validate payload and auth before real publish
-2. **Check account mapping** - `swarm_signal` = slot 1, `getboski` = slot 2
+2. **Check account mapping** - `swarm_signal` = slot 1, `bored_tools` = slot 2, `cannaexplained` = slot 3
 3. **Handle rate limits** - Bridge will return 429 if limit exceeded
 4. **Verify media URLs** - Ensure images are accessible before posting
 5. **Never log secrets** - Redact tokens and secrets from all output

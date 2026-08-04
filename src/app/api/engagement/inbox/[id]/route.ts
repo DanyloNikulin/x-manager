@@ -58,7 +58,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (status === 'dismissed') {
       await recordEngagementAction({
         inboxId,
-        accountSlot: row.accountSlot as 1 | 2,
+        accountSlot: row.accountSlot as 1 | 2 | 3,
         actionType: 'dismiss',
         targetId: row.sourceId,
         payload: { note: asString(body.note) || null },

@@ -258,12 +258,12 @@ async function executePostTask(
   const content = (details.content as string) ?? (details.text as string) ?? (details.raw as string) ?? task.title;
   const accountSlot = (details.accountSlot as number) ?? 1;
 
-  const policyResult = await checkPolicy({ slot: accountSlot as 1 | 2, actionType: 'post' });
+  const policyResult = await checkPolicy({ slot: accountSlot as 1 | 2 | 3, actionType: 'post' });
   if (!policyResult.allowed) {
     throw new Error(`Policy rejected: ${policyResult.reason}`);
   }
 
-  const account = await requireConnectedAccount(accountSlot as 1 | 2);
+  const account = await requireConnectedAccount(accountSlot as 1 | 2 | 3);
   const mediaIds = Array.isArray(details.mediaIds) ? (details.mediaIds as string[]) : [];
   const communityId = (details.communityId as string) ?? undefined;
   const replyToTweetId = (details.replyToTweetId as string) ?? undefined;
@@ -298,12 +298,12 @@ async function executeReplyTask(
     throw new Error('Reply task missing replyToTweetId in details.');
   }
 
-  const policyResult = await checkPolicy({ slot: accountSlot as 1 | 2, actionType: 'reply' });
+  const policyResult = await checkPolicy({ slot: accountSlot as 1 | 2 | 3, actionType: 'reply' });
   if (!policyResult.allowed) {
     throw new Error(`Policy rejected: ${policyResult.reason}`);
   }
 
-  const account = await requireConnectedAccount(accountSlot as 1 | 2);
+  const account = await requireConnectedAccount(accountSlot as 1 | 2 | 3);
 
   const result = await postTweet(
     content,
@@ -319,7 +319,7 @@ async function executeReplyTask(
   }
 
   await recordEngagementAction({
-    accountSlot: accountSlot as 1 | 2,
+    accountSlot: accountSlot as 1 | 2 | 3,
     actionType: 'reply',
     targetId: replyToTweetId,
     payload: { content, taskId: task.id },
@@ -342,12 +342,12 @@ async function executeDmTask(
     throw new Error('DM task missing recipientUserId in details.');
   }
 
-  const policyResult = await checkPolicy({ slot: accountSlot as 1 | 2, actionType: 'dm' });
+  const policyResult = await checkPolicy({ slot: accountSlot as 1 | 2 | 3, actionType: 'dm' });
   if (!policyResult.allowed) {
     throw new Error(`Policy rejected: ${policyResult.reason}`);
   }
 
-  const account = await requireConnectedAccount(accountSlot as 1 | 2);
+  const account = await requireConnectedAccount(accountSlot as 1 | 2 | 3);
 
   const result = await sendDirectMessage(
     account.twitterAccessToken,
@@ -357,7 +357,7 @@ async function executeDmTask(
   );
 
   await recordEngagementAction({
-    accountSlot: accountSlot as 1 | 2,
+    accountSlot: accountSlot as 1 | 2 | 3,
     actionType: 'dm_send',
     targetId: recipientUserId,
     payload: { content, taskId: task.id },
@@ -383,12 +383,12 @@ async function executeLikeTask(
     throw new Error('Like task missing tweetIds or tweetId in details.');
   }
 
-  const policyResult = await checkPolicy({ slot: accountSlot as 1 | 2, actionType: 'like' });
+  const policyResult = await checkPolicy({ slot: accountSlot as 1 | 2 | 3, actionType: 'like' });
   if (!policyResult.allowed) {
     throw new Error(`Policy rejected: ${policyResult.reason}`);
   }
 
-  const account = await requireConnectedAccount(accountSlot as 1 | 2);
+  const account = await requireConnectedAccount(accountSlot as 1 | 2 | 3);
   const results: Array<{ tweetId: string; status: string }> = [];
 
   for (const tweetId of tweetIds) {
@@ -402,7 +402,7 @@ async function executeLikeTask(
       results.push({ tweetId, status: 'liked' });
 
       await recordEngagementAction({
-        accountSlot: accountSlot as 1 | 2,
+        accountSlot: accountSlot as 1 | 2 | 3,
         actionType: 'like',
         targetId: tweetId,
         payload: { taskId: task.id },

@@ -51,7 +51,7 @@ export async function GET(req: Request) {
         id: 'list_posts',
         method: 'GET',
         path: '/api/scheduler/posts',
-        description: 'List scheduled posts (optionally filter by ?account_slot=1|2).',
+        description: 'List scheduled posts (optionally filter by ?account_slot=1|2|3).',
       },
       {
         id: 'schedule_post',
@@ -63,7 +63,7 @@ export async function GET(req: Request) {
         fields: [
           { name: 'text', required: true },
           { name: 'scheduled_time', required: true, format: 'ISO string' },
-          { name: 'account_slot', required: false, default: 1, allowed: [1, 2] },
+          { name: 'account_slot', required: false, default: 1, allowed: [1, 2, 3] },
           { name: 'community_id', required: false },
           { name: 'reply_to_tweet_id', required: false },
           { name: 'files', required: false, repeatable: true, note: 'Up to 4 images/GIFs.' },
@@ -97,7 +97,7 @@ export async function GET(req: Request) {
           'Create a media-aware thread draft from an article URL (extracts quote candidates + article images, downloads images into /uploads). Optional one-shot scheduling when schedule=true.',
         fields: [
           { name: 'article_url', required: true, note: 'Public article URL (e.g. swarmsignal.net post).' },
-          { name: 'account_slot', required: false, default: 1, allowed: [1, 2] },
+          { name: 'account_slot', required: false, default: 1, allowed: [1, 2, 3] },
           { name: 'max_tweets', required: false, default: 6, note: 'Range 2..12' },
           { name: 'include_images', required: false, default: true },
           { name: 'schedule', required: false, default: false },
@@ -116,7 +116,7 @@ export async function GET(req: Request) {
           'Bridge endpoint for external bots (e.g. OpenClaw) to publish immediately via a connected X slot. Requires Authorization: Bearer <OPENCLAW_BRIDGE_TOKEN>; supports optional signed requests via x-openclaw-timestamp + x-openclaw-signature.',
         fields: [
           { name: 'text|content|message|tweet_text', required: true, note: 'Any one can supply tweet text.' },
-          { name: 'account_slot|slot', required: false, default: 1, allowed: [1, 2] },
+          { name: 'account_slot|slot', required: false, default: 1, allowed: [1, 2, 3] },
           { name: 'account|handle|username', required: false, note: 'Alternative to slot (e.g. "swarm_signal").' },
           { name: 'media_urls|mediaUrls|images', required: false, note: 'Up to 4 image URLs or /uploads paths.' },
           { name: 'community_id|communityId', required: false },
@@ -610,7 +610,7 @@ export async function GET(req: Request) {
       { code: 'ACCOUNT_NOT_CONNECTED', status: 400, description: 'The requested account slot has no connected X credentials.' },
       { code: 'RATE_LIMIT_EXCEEDED', status: 429, description: 'Too many requests. Check Retry-After header.' },
       { code: 'POLICY_REJECTED', status: 403, description: 'Action blocked by slot policy (quota, time window).' },
-      { code: 'INVALID_SLOT', status: 400, description: 'Slot must be 1 or 2.' },
+      { code: 'INVALID_SLOT', status: 400, description: 'Slot must be 1, 2, or 3.' },
       { code: 'MISSING_CREDENTIALS', status: 503, description: 'Required API credentials are not configured.' },
       { code: 'DUPLICATE_POST', status: 409, description: 'This content was already posted or scheduled.' },
       { code: 'X_API_ERROR', status: 502, description: 'X API returned an error.' },

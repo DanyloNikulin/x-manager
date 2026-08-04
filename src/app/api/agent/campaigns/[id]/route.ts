@@ -72,7 +72,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       name: string;
       objective: string;
       instructions: string | null;
-      accountSlot: 1 | 2;
+      accountSlot: 1 | 2 | 3;
       startAt: Date | null;
       endAt: Date | null;
       status: CampaignStatus;

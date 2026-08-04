@@ -301,7 +301,7 @@ export function prepareCsvImport(csvText: string, options: PrepareCsvImportOptio
         errors.push({
           lineNumber: row.lineNumber,
           field: 'account_slot',
-          message: `Invalid account slot "${accountSlotRaw}". Use 1 or 2.`,
+          message: `Invalid account slot "${accountSlotRaw}". Use 1, 2, or 3.`,
         });
         continue;
       }

@@ -32,7 +32,7 @@ export async function GET(req: Request) {
       const parsed = Number(accountSlotParam);
       if (!Number.isFinite(parsed) || !isAccountSlot(parsed)) {
         return NextResponse.json(
-          { error: 'Invalid account_slot. Use 1 or 2.' },
+          { error: 'Invalid account_slot. Use 1, 2, or 3.' },
           { status: 400 },
         );
       }

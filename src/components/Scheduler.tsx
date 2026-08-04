@@ -10,6 +10,7 @@ import type { IGif } from '@giphy/js-types';
 import ThreadComposer from './ThreadComposer';
 import AiWriter from './AiWriter';
 import { useToast } from './ui/Toast';
+import { ACCOUNT_SLOTS } from '@/lib/account-slots';
 
 // Add Giphy API instance
 const gf = new GiphyFetch(process.env.NEXT_PUBLIC_GIPHY_API_KEY || '__REMOVED__');
@@ -158,7 +159,7 @@ export default function Scheduler({ onUpdate, refreshTrigger, compact = false }:
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingPost, setEditingPost] = useState<ScheduledPost | null>(null);
   const [showManageTags, setShowManageTags] = useState(false);
-  const [visibleSlots, setVisibleSlots] = useState<number[]>([1, 2]);
+  const [visibleSlots, setVisibleSlots] = useState<number[]>([...ACCOUNT_SLOTS]);
   
   // Queue states
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
@@ -1464,6 +1465,7 @@ export default function Scheduler({ onUpdate, refreshTrigger, compact = false }:
               >
                 <option value={1}>Account #1</option>
                 <option value={2}>Account #2</option>
+                <option value={3}>Account #3</option>
               </select>
               <button
                 onClick={autoScheduleQueue}
@@ -1796,6 +1798,7 @@ export default function Scheduler({ onUpdate, refreshTrigger, compact = false }:
                 >
                   <option value={1}>Account 1</option>
                   <option value={2}>Account 2</option>
+                  <option value={3}>Account 3</option>
                 </select>
               </div>
 

@@ -445,7 +445,7 @@ function parseAllowedSlots(raw: string | undefined): Set<number> {
   if (text.length > 0) {
     for (const piece of text.split(',')) {
       const slot = asInt(piece.trim());
-      if (slot === 1 || slot === 2) result.add(slot);
+      if (slot === 1 || slot === 2 || slot === 3) result.add(slot);
     }
   }
   if (result.size === 0) result.add(1);
@@ -459,7 +459,7 @@ async function resolveAccountSlot(post: Record<string, unknown>): Promise<number
   if (isProvided(rawSlotValue)) {
     const parsed = asInt(rawSlotValue);
     if (parsed === 1 || parsed === 2) return parsed;
-    throw new Error('Invalid account slot. Use 1 or 2.');
+    throw new Error('Invalid account slot. Use 1, 2, or 3.');
   }
 
   const accountHintRaw =
@@ -481,7 +481,7 @@ async function resolveAccountSlot(post: Record<string, unknown>): Promise<number
       .from(xAccounts);
 
     const matched = rows.find((row) => normalizeHandle(row.username || '') === accountHint);
-    if (matched?.slot === 1 || matched?.slot === 2) return matched.slot;
+    if (matched?.slot === 1 || matched?.slot === 2 || matched?.slot === 3) return matched.slot;
     throw new Error(`Unknown account handle "${accountHintRaw}".`);
   }
 

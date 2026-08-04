@@ -16,7 +16,7 @@ export async function GET(req: Request) {
     if (slotParam) {
       const parsed = Number(slotParam);
       if (!Number.isFinite(parsed) || !isAccountSlot(parsed)) {
-        return NextResponse.json({ error: 'Invalid account_slot. Use 1 or 2.' }, { status: 400 });
+        return NextResponse.json({ error: 'Invalid account_slot. Use 1, 2, or 3.' }, { status: 400 });
       }
       slot = parsed;
     }
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     if (slotRaw !== undefined) {
       const parsed = parseAccountSlot(slotRaw);
       if (!parsed) {
-        return NextResponse.json({ error: 'Invalid account_slot. Use 1 or 2.' }, { status: 400 });
+        return NextResponse.json({ error: 'Invalid account_slot. Use 1, 2, or 3.' }, { status: 400 });
       }
       accountSlot = parsed;
     }

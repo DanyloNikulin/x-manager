@@ -859,7 +859,7 @@ export function ensureSchema(sqlite: SqliteDb): void {
   execWithRetry(sqlite, `
     UPDATE scheduled_posts
     SET account_slot = 1
-    WHERE account_slot IS NULL OR account_slot NOT IN (1, 2);
+    WHERE account_slot IS NULL OR account_slot NOT IN (1, 2, 3);
 
     INSERT INTO x_accounts (
       slot,

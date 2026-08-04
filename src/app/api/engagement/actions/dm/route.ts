@@ -31,7 +31,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   return withIdempotency('engagement-dm', req, async () => {
-    let accountSlot: 1 | 2 = 1;
+    let accountSlot: 1 | 2 | 3 = 1;
     let inboxId: number | null = null;
     let recipientUserId: string | null = null;
     let text: string | null = null;

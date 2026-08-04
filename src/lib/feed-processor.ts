@@ -156,7 +156,7 @@ export async function runFeedProcessor(logger: Logger): Promise<void> {
 
           if (text) {
             const scheduled = await createScheduledPost({
-              accountSlot: feed.accountSlot as 1 | 2,
+              accountSlot: feed.accountSlot as 1 | 2 | 3,
               text,
               scheduledTime: new Date(Date.now() + 5 * 60_000),
               sourceUrl: entry.url,

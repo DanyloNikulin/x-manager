@@ -28,7 +28,7 @@ Notes:
 
 ## X Account Connection (Slots)
 
-X accounts are stored in slots (`1` and `2`). The system can be configured to require only 1 connected slot.
+X accounts are stored in slots (`1`, `2`, and `3`). The system can be configured to require only 1 connected slot.
 
 OAuth modes:
 - Web callback mode (normal)
@@ -57,7 +57,7 @@ Required fields:
 - `scheduled_time` (ISO date string)
 
 Optional fields:
-- `account_slot` (1 or 2, default 1)
+- `account_slot` (1, 2, or 3; default 1)
 - `community_id`
 - `reply_to_tweet_id` (schedule as a reply)
 - `files` (repeatable, up to 4)
@@ -182,7 +182,7 @@ Notes:
 
 ### List / Delete Scheduled Posts
 
-- List: `GET /api/scheduler/posts` (optional `?account_slot=1|2`)
+- List: `GET /api/scheduler/posts` (optional `?account_slot=1|2|3`)
 - Delete one: `DELETE /api/scheduler/posts/:id`
 - Delete all: `DELETE /api/scheduler/posts`
 
