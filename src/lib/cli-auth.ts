@@ -1,6 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'child_process';
 import crypto from 'crypto';
-import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
@@ -113,17 +112,24 @@ function wrapWindowsBatch(program: string, args: string[]): CommandSpec {
 }
 
 function resolveWindowsCommand(name: string, args: string[]): CommandSpec | null {
-  const pathEntries = (process.env.PATH || '').split(path.delimiter);
-  for (const rawEntry of pathEntries) {
-    const entry = rawEntry.trim().replace(/^"|"$/g, '');
-    if (!entry) continue;
-    for (const extension of ['.exe', '.cmd', '.bat']) {
-      const candidate = path.join(entry, `${name}${extension}`);
-      if (!fs.existsSync(candidate)) continue;
-      return extension === '.exe'
-        ? { program: candidate, args }
-        : wrapWindowsBatch(candidate, args);
-    }
+  const where = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'where.exe');
+  const result = spawnSync(where, [name], {
+    encoding: 'utf8',
+    env: cleanEnvironment(),
+    windowsHide: true,
+  });
+  if (result.status !== 0) return null;
+
+  const candidates = result.stdout
+    .split(/\r?\n/)
+    .map((candidate) => candidate.trim())
+    .filter((candidate) => /\.(?:exe|cmd|bat)$/i.test(candidate));
+  for (const extension of ['.exe', '.cmd', '.bat']) {
+    const candidate = candidates.find((value) => value.toLowerCase().endsWith(extension));
+    if (!candidate) continue;
+    return extension === '.exe'
+      ? { program: candidate, args }
+      : wrapWindowsBatch(candidate, args);
   }
   return null;
 }
@@ -146,21 +152,6 @@ function commandFor(provider: CliAuthProvider, operation: 'status' | 'login'): C
     return process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(override)
       ? wrapWindowsBatch(override, args)
       : { program: override, args };
-  }
-
-  if (provider === 'codex' && process.platform === 'win32') {
-    const codexScript = path.join(
-      process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'),
-      'npm',
-      'node_modules',
-      '@openai',
-      'codex',
-      'bin',
-      'codex.js',
-    );
-    if (fs.existsSync(codexScript)) {
-      return { program: process.execPath, args: [codexScript, ...args] };
-    }
   }
 
   if (process.platform === 'win32') {
@@ -306,7 +297,14 @@ async function statusFor(provider: CliAuthProvider): Promise<CliProviderStatus> 
   }
 
   const credentialPath = path.join(os.homedir(), '.kimi-code', 'credentials', 'kimi-code.json');
-  const authenticated = fs.existsSync(credentialPath);
+  const credentialResult = await runBuffered({
+    program: process.execPath,
+    args: [
+      '-e',
+      `process.exit(require('fs').existsSync(${JSON.stringify(credentialPath)}) ? 0 : 1)`,
+    ],
+  });
+  const authenticated = credentialResult.exitCode === 0;
   return {
     provider,
     label: providerLabels[provider],
