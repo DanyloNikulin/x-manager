@@ -150,6 +150,9 @@ export const campaignTasks = sqliteTable('campaign_tasks', {
   output: text('output'),
   requiresApproval: integer('requires_approval', { mode: 'boolean' }).notNull().default(false),
   approvalId: integer('approval_id'),
+  claimedBy: text('claimed_by'),
+  claimedAt: integer('claimed_at', { mode: 'timestamp' }),
+  attemptCount: integer('attempt_count').notNull().default(0),
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`),
 });

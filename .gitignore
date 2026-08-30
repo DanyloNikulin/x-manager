@@ -28,6 +28,12 @@
 .env.development.local
 .env.test.local
 .env.production.local
+/orchestrator/config.toml
+/orchestrator/target/
+
+# Per-account private voice and strategy data (commit only *.example.md templates)
+/accounts/*/*.md
+!/accounts/*/*.example.md
 
 # Build artifacts
 /build

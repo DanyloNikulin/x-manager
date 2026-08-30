@@ -15,7 +15,7 @@ Zero external dependencies. Full encryption at rest. Runs on a $5 VPS.
 **What you get out of the box:**
 
 - **Schedule posts** -- visual calendar, bulk CSV import, or queue-based publishing
-- **Manage 2 accounts** side-by-side from one dashboard
+- **Manage up to 3 accounts** side-by-side from one dashboard
 - **Auto-publish** on schedule via built-in cron (no extra processes needed)
 - **Engagement inbox** -- mentions, DMs, tags, notes, and quick-reply templates
 - **Topic discovery** -- find conversations to engage with, ranked by engagement + recency
@@ -108,6 +108,10 @@ On first run you'll see a **Setup Panel** where you can paste your X API credent
 Click the **Connect** button in the dashboard. You'll be redirected to X to authorize the app, then back to X-Manager with your account connected.
 
 That's it. You're ready to schedule your first post.
+
+### Subscription-based Claude + Codex worker
+
+This fork includes an optional Rust worker that turns campaign tasks into reviewed drafts using locally authenticated Claude Code and Codex subscriptions. It is configured for account slots 1 and 2 by default, never receives X credentials, and cannot publish directly. See [docs/subscription-worker.md](docs/subscription-worker.md).
 
 ---
 

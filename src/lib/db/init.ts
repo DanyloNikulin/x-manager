@@ -735,6 +735,24 @@ export function ensureSchema(sqlite: SqliteDb): void {
     'approval_id',
     'ALTER TABLE campaign_tasks ADD COLUMN approval_id INTEGER',
   );
+  ensureColumn(
+    sqlite,
+    'campaign_tasks',
+    'claimed_by',
+    'ALTER TABLE campaign_tasks ADD COLUMN claimed_by TEXT',
+  );
+  ensureColumn(
+    sqlite,
+    'campaign_tasks',
+    'claimed_at',
+    'ALTER TABLE campaign_tasks ADD COLUMN claimed_at INTEGER',
+  );
+  ensureColumn(
+    sqlite,
+    'campaign_tasks',
+    'attempt_count',
+    'ALTER TABLE campaign_tasks ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0',
+  );
 
   // P3.3: Inbox assignment
   ensureColumn(

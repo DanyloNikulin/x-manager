@@ -170,6 +170,36 @@ export async function GET(req: Request) {
         description: 'List or create campaign tasks.',
       },
       {
+        id: 'subscription_worker_tasks',
+        method: 'GET',
+        path: '/api/agent/tasks',
+        description: 'List draft-only post/reply tasks for a subscription worker.',
+      },
+      {
+        id: 'subscription_worker_claim',
+        method: 'POST',
+        path: '/api/agent/tasks/:id/claim',
+        contentType: 'application/json',
+        description: 'Atomically claim a draft-only task for one subscription worker.',
+        fields: [
+          { name: 'worker_id', required: true },
+          { name: 'assigned_agent', required: true },
+        ],
+      },
+      {
+        id: 'subscription_worker_result',
+        method: 'POST',
+        path: '/api/agent/tasks/:id/result',
+        contentType: 'application/json',
+        description: 'Submit a validated draft, review request, or failure for a claimed task.',
+        fields: [
+          { name: 'worker_id', required: true },
+          { name: 'outcome', required: true, allowed: ['drafted', 'needs_review', 'failed'] },
+          { name: 'output', required: false, note: 'Structured audit data from writer and validator.' },
+          { name: 'draft', required: false, note: 'Required only for drafted outcomes.' },
+        ],
+      },
+      {
         id: 'agent_approvals',
         method: 'GET/POST/PATCH',
         path: '/api/agent/approvals',

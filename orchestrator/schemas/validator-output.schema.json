@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "score", "issues", "revision_instructions"],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["pass", "revise", "block"]
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "issues": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "revision_instructions": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

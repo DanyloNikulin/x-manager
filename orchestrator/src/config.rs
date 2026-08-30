@@ -1,0 +1,170 @@
+use std::{
+    collections::HashMap,
+    env, fs,
+    path::{Path, PathBuf},
+};
+
+use anyhow::{Context, Result, bail};
+use serde::Deserialize;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Config {
+    pub manager: ManagerConfig,
+    pub worker: WorkerConfig,
+    pub writer: AgentCommand,
+    pub validator: AgentCommand,
+    pub accounts: HashMap<String, AccountConfig>,
+    #[serde(skip)]
+    pub root: PathBuf,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ManagerConfig {
+    pub base_url: String,
+    #[serde(default = "default_admin_token_env")]
+    pub admin_token_env: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkerConfig {
+    pub id: String,
+    #[serde(default = "default_assigned_agent")]
+    pub assigned_agent: String,
+    #[serde(default = "default_max_tasks")]
+    pub max_tasks_per_run: usize,
+    #[serde(default = "default_revision_rounds")]
+    pub max_revision_rounds: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentCommand {
+    pub program: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default = "default_timeout")]
+    pub timeout_seconds: u64,
+    pub schema_path: Option<PathBuf>,
+    #[serde(default)]
+    pub remove_env: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AccountConfig {
+    pub workspace: PathBuf,
+    #[serde(default = "default_language")]
+    pub language: String,
+}
+
+fn default_admin_token_env() -> String {
+    "X_MANAGER_ADMIN_TOKEN".into()
+}
+fn default_assigned_agent() -> String {
+    "subscription-agent".into()
+}
+fn default_language() -> String {
+    "en".into()
+}
+fn default_max_tasks() -> usize {
+    2
+}
+fn default_revision_rounds() -> usize {
+    1
+}
+fn default_timeout() -> u64 {
+    600
+}
+
+impl Config {
+    pub fn load(path: &Path) -> Result<Self> {
+        let raw = fs::read_to_string(path)
+            .with_context(|| format!("failed to read config {}", path.display()))?;
+        let mut config: Self = toml::from_str(&raw).context("invalid orchestrator TOML")?;
+        config.root = path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        config.validate()?;
+        Ok(config)
+    }
+
+    pub fn admin_token(&self) -> Result<String> {
+        env::var(&self.manager.admin_token_env)
+            .with_context(|| format!("missing {}", self.manager.admin_token_env))
+            .and_then(|value| {
+                if value.trim().is_empty() {
+                    bail!("{} is empty", self.manager.admin_token_env)
+                }
+                Ok(value)
+            })
+    }
+
+    pub fn resolve(&self, path: &Path) -> PathBuf {
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.root.join(path)
+        }
+    }
+
+    fn validate(&self) -> Result<()> {
+        if !self.manager.base_url.starts_with("http://")
+            && !self.manager.base_url.starts_with("https://")
+        {
+            bail!("manager.base_url must use http or https");
+        }
+        if self.worker.id.len() < 3
+            || self.worker.id.len() > 100
+            || !self
+                .worker
+                .id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || ".-_:".contains(c))
+        {
+            bail!("worker.id contains unsupported characters");
+        }
+        if self.worker.max_tasks_per_run == 0 || self.worker.max_tasks_per_run > 20 {
+            bail!("worker.max_tasks_per_run must be between 1 and 20");
+        }
+        if self.worker.max_revision_rounds > 1 {
+            bail!("worker.max_revision_rounds is capped at 1 to protect subscription usage");
+        }
+        for slot in ["1", "2"] {
+            if !self.accounts.contains_key(slot) {
+                bail!("accounts.{slot} is required");
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validates_worker_identifier() {
+        let parsed: Config = toml::from_str(
+            r#"
+            [manager]
+            base_url = "http://127.0.0.1:3999"
+
+            [worker]
+            id = "station.worker-1"
+
+            [writer]
+            program = "claude"
+
+            [validator]
+            program = "codex"
+
+            [accounts.1]
+            workspace = "../accounts/slot-1"
+
+            [accounts.2]
+            workspace = "../accounts/slot-2"
+        "#,
+        )
+        .expect("config should deserialize");
+        parsed.validate().expect("config should validate");
+    }
+}

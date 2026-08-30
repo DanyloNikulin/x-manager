@@ -1,0 +1,47 @@
+[manager]
+base_url = "http://127.0.0.1:3999"
+admin_token_env = "X_MANAGER_ADMIN_TOKEN"
+
+[worker]
+id = "station.subscription-worker-1"
+assigned_agent = "subscription-agent"
+max_tasks_per_run = 2
+max_revision_rounds = 1
+
+[writer]
+program = "claude"
+args = [
+  "-p",
+  "--output-format", "json",
+  "--json-schema", "{schema_json}",
+  "--tools", "",
+  "--safe-mode",
+  "--strict-mcp-config",
+  "--no-session-persistence"
+]
+schema_path = "schemas/writer-output.schema.json"
+timeout_seconds = 600
+
+[validator]
+program = "codex"
+args = [
+  "exec",
+  "--sandbox", "read-only",
+  "--skip-git-repo-check",
+  "--ephemeral",
+  "--ignore-user-config",
+  "--ignore-rules",
+  "--output-schema", "{schema}",
+  "--output-last-message", "{output}",
+  "-"
+]
+schema_path = "schemas/validator-output.schema.json"
+timeout_seconds = 600
+
+[accounts.1]
+workspace = "../accounts/slot-1"
+language = "en"
+
+[accounts.2]
+workspace = "../accounts/slot-2"
+language = "en"
