@@ -71,6 +71,28 @@ export function parseCliAuthProvider(value: string): CliAuthProvider | null {
     : null;
 }
 
+export function isAllowedCliAuthOrigin(
+  requestUrl: string,
+  originHeader: string | null,
+  configuredAppUrl?: string,
+): boolean {
+  if (!originHeader) return true;
+
+  try {
+    const allowedOrigins = new Set([new URL(requestUrl).origin]);
+    if (configuredAppUrl?.trim()) {
+      try {
+        allowedOrigins.add(new URL(configuredAppUrl.trim()).origin);
+      } catch {
+        // An invalid public URL must not add another allowed origin.
+      }
+    }
+    return allowedOrigins.has(new URL(originHeader).origin);
+  } catch {
+    return false;
+  }
+}
+
 function cleanEnvironment(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   const blocked = [

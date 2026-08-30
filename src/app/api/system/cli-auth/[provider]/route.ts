@@ -1,17 +1,20 @@
 import { NextResponse } from 'next/server';
-import { cancelCliLogin, parseCliAuthProvider, startCliLogin } from '@/lib/cli-auth';
+import {
+  cancelCliLogin,
+  isAllowedCliAuthOrigin,
+  parseCliAuthProvider,
+  startCliLogin,
+} from '@/lib/cli-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 function isSameOrigin(req: Request): boolean {
-  const origin = req.headers.get('origin');
-  if (!origin) return true;
-  try {
-    return new URL(origin).origin === new URL(req.url).origin;
-  } catch {
-    return false;
-  }
+  return isAllowedCliAuthOrigin(
+    req.url,
+    req.headers.get('origin'),
+    process.env.NEXT_PUBLIC_APP_URL,
+  );
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ provider: string }> }) {
