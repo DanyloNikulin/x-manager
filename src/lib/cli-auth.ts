@@ -156,19 +156,26 @@ function resolveWindowsCommand(name: string, args: string[]): CommandSpec | null
   return null;
 }
 
-function commandFor(provider: CliAuthProvider, operation: 'status' | 'login'): CommandSpec {
-  const override = process.env[`X_MANAGER_${provider.toUpperCase()}_BIN`]?.trim();
-  const args = operation === 'login'
+export function cliAuthArgsFor(
+  provider: CliAuthProvider,
+  operation: 'status' | 'login',
+): string[] {
+  return operation === 'login'
     ? provider === 'claude'
       ? ['auth', 'login', '--claudeai']
       : provider === 'codex'
         ? ['login', '--device-auth']
-        : ['login', '--region', 'global']
+        : ['login']
     : provider === 'claude'
       ? ['auth', 'status']
       : provider === 'codex'
         ? ['login', 'status']
         : ['--version'];
+}
+
+function commandFor(provider: CliAuthProvider, operation: 'status' | 'login'): CommandSpec {
+  const override = process.env[`X_MANAGER_${provider.toUpperCase()}_BIN`]?.trim();
+  const args = cliAuthArgsFor(provider, operation);
 
   if (override) {
     return process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(override)

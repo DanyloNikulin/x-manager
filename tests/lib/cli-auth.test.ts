@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { isAllowedCliAuthOrigin, parseCliAuthProvider } from '../../src/lib/cli-auth';
+import {
+  cliAuthArgsFor,
+  isAllowedCliAuthOrigin,
+  parseCliAuthProvider,
+} from '../../src/lib/cli-auth';
 
 describe('CLI auth contracts', () => {
   it('accepts only the fixed provider allow-list', () => {
@@ -8,6 +12,12 @@ describe('CLI auth contracts', () => {
     expect(parseCliAuthProvider('kimi')).toBe('kimi');
     expect(parseCliAuthProvider('../powershell')).toBeNull();
     expect(parseCliAuthProvider('bash')).toBeNull();
+  });
+
+  it('uses login arguments supported by each subscription CLI', () => {
+    expect(cliAuthArgsFor('claude', 'login')).toEqual(['auth', 'login', '--claudeai']);
+    expect(cliAuthArgsFor('codex', 'login')).toEqual(['login', '--device-auth']);
+    expect(cliAuthArgsFor('kimi', 'login')).toEqual(['login']);
   });
 
   it('accepts the configured public origin behind a local reverse proxy', () => {
