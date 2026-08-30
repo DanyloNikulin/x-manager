@@ -111,7 +111,7 @@ That's it. You're ready to schedule your first post.
 
 ### Subscription-based Claude + Codex worker
 
-This fork includes an optional Rust worker that turns campaign tasks into reviewed drafts using locally authenticated Claude Code and Codex subscriptions. It is configured for account slots 1 and 2 by default, never receives X credentials, and cannot publish directly. See [docs/subscription-worker.md](docs/subscription-worker.md).
+This fork includes an optional Rust worker that turns campaign tasks into validated content using locally authenticated Claude Code and Codex subscriptions. It is configured for account slots 1 and 2 by default and never receives X credentials. Approved modes can feed the existing X-Manager scheduler automatically, while outbound replies default to operator approval. Provider subscription logins can be supervised from Settings. See [docs/subscription-worker.md](docs/subscription-worker.md).
 
 ---
 

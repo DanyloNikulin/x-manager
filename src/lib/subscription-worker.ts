@@ -12,6 +12,9 @@ export type WorkerTaskStatus = (typeof WORKER_TASK_STATUSES)[number];
 export const WORKER_TASK_TYPES = ['post', 'reply'] as const;
 export type WorkerTaskType = (typeof WORKER_TASK_TYPES)[number];
 
+export const WORKER_PUBLICATION_MODES = ['auto', 'draft'] as const;
+export type WorkerPublicationMode = (typeof WORKER_PUBLICATION_MODES)[number];
+
 export type WorkerTaskQuery = {
   status: WorkerTaskStatus;
   assignedAgent: string | null;
@@ -65,4 +68,11 @@ export function parseWorkerId(value: unknown): string | null {
 
 export function isWorkerTaskType(value: string): value is WorkerTaskType {
   return WORKER_TASK_TYPES.includes(value as WorkerTaskType);
+}
+
+export function parseWorkerPublicationMode(value: unknown): WorkerPublicationMode | null {
+  if (typeof value !== 'string') return null;
+  return WORKER_PUBLICATION_MODES.includes(value as WorkerPublicationMode)
+    ? value as WorkerPublicationMode
+    : null;
 }

@@ -3,7 +3,10 @@ use reqwest::{Client, StatusCode};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::models::{TaskList, WorkerTask};
+use crate::{
+    config::PublicationMode,
+    models::{TaskList, WorkerTask},
+};
 
 #[derive(Clone)]
 pub struct ManagerClient {
@@ -23,6 +26,8 @@ struct ResultRequest<'a> {
     worker_id: &'a str,
     outcome: &'a str,
     output: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    publication_mode: Option<PublicationMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     draft: Option<DraftRequest<'a>>,
 }
@@ -119,6 +124,7 @@ impl ManagerClient {
         worker_id: &str,
         text: &str,
         reply_to_tweet_id: Option<&str>,
+        publication_mode: PublicationMode,
         output: Value,
     ) -> Result<()> {
         self.submit_result(
@@ -127,6 +133,7 @@ impl ManagerClient {
                 worker_id,
                 outcome: "drafted",
                 output,
+                publication_mode: Some(publication_mode),
                 draft: Some(DraftRequest {
                     text,
                     media_urls: vec![],
@@ -151,6 +158,7 @@ impl ManagerClient {
                 worker_id,
                 outcome: "needs_review",
                 output,
+                publication_mode: None,
                 draft: text.map(|text| DraftRequest {
                     text,
                     media_urls: vec![],
@@ -168,6 +176,7 @@ impl ManagerClient {
                 worker_id,
                 outcome: "failed",
                 output: serde_json::json!({ "error": message }),
+                publication_mode: None,
                 draft: None,
             },
         )

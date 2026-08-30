@@ -48,6 +48,18 @@ export async function GET(req: Request) {
         description: 'Return current API/UI auth session state.',
       },
       {
+        id: 'cli_auth_status',
+        method: 'GET',
+        path: '/api/system/cli-auth',
+        description: 'Inspect host-local Claude Code, Codex CLI, and Kimi Code subscription login status.',
+      },
+      {
+        id: 'cli_auth_login',
+        method: 'POST/DELETE',
+        path: '/api/system/cli-auth/:provider',
+        description: 'Start or cancel a fixed, host-local subscription OAuth/device login flow.',
+      },
+      {
         id: 'list_posts',
         method: 'GET',
         path: '/api/scheduler/posts',
@@ -197,6 +209,7 @@ export async function GET(req: Request) {
           { name: 'outcome', required: true, allowed: ['drafted', 'needs_review', 'failed'] },
           { name: 'output', required: false, note: 'Structured audit data from writer and validator.' },
           { name: 'draft', required: false, note: 'Required only for drafted outcomes.' },
+          { name: 'publication_mode', required: false, allowed: ['auto', 'draft'], note: 'Auto queues validated content in the existing scheduler.' },
         ],
       },
       {

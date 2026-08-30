@@ -7,9 +7,8 @@ campaign task
   -> atomic claim by Rust worker
   -> Claude Code writer (subscription sign-in)
   -> Codex validator (subscription sign-in)
-  -> drafted | needs_review | failed
-  -> X-Manager draft and operator approval
-  -> existing X-Manager scheduler publishes through the official X API
+  -> auto-scheduled | drafted | needs_review | failed
+  -> existing X-Manager scheduler publishes eligible content through the official X API
 ```
 
 ## Trust boundaries
@@ -37,7 +36,17 @@ Task details should be a JSON string. A post commonly uses:
 }
 ```
 
-A reply additionally uses `reply_to_tweet_id` and should include the parent text and URL as untrusted source data.
+A reply additionally uses `reply_to_tweet_id` and should include the parent text and URL as untrusted source data. Set `reply_kind` to `inbound` only when the target user contacted this account first; missing or `outbound` values use the safer outbound policy.
+
+Each account config has three publication controls:
+
+- `post_mode`: defaults to `auto`.
+- `inbound_reply_mode`: defaults to `auto`.
+- `outbound_reply_mode`: defaults to `approval`.
+
+Allowed values are `auto`, `approval`, and `draft`. Auto mode never gives the model X credentials: the validated result is inserted into X-Manager's existing scheduler, which performs the official X API call. Validator failures and blocks cannot auto-publish.
+
+For defense in depth, an auto reply is scheduled only when its target tweet already exists as an inbound mention for the same account in `engagement_inbox`. Merely setting `reply_kind: inbound` cannot bypass this check; unverifiable replies are downgraded to reviewable drafts.
 
 ## Local setup
 
@@ -54,5 +63,7 @@ Do not overlap `run-once` invocations with the same worker ID. This MVP does not
 ## Remote server layout
 
 Run X-Manager, the Rust worker, and the subscription CLIs under the same Linux user. Keep X-Manager on loopback or expose it only through Tailscale; do not publish the admin API directly to the internet. A lightweight desktop session with Chrome is useful only for interactive sign-in to Claude, Codex, X, and other subscribed tools. The worker itself uses their authenticated CLIs and does not automate the browser.
+
+The Settings page contains a host-local login control deck for Claude Code, Codex CLI, and Kimi Code. Codex and Kimi expose device links/codes that can be opened in the operator's browser. Claude subscription OAuth may open Chrome in the server desktop session. X-Manager only supervises the fixed CLI commands and displays sanitized output; credentials remain in each CLI's own storage under the service user's home directory.
 
 The application supports three X account slots, but `config.example.toml` intentionally enables only slots 1 and 2. Each slot has separate profile, voice, strategy, and memory files. Adding another account requires an explicit config entry and completed onboarding rather than silently sharing context.

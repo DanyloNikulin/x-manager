@@ -14,6 +14,7 @@ import SetupPanel from '@/components/SetupPanel';
 import OpsCenter from '@/components/OpsCenter';
 import Analytics from '@/components/Analytics';
 import DraftManager from '@/components/DraftManager';
+import CliAuthPanel from '@/components/CliAuthPanel';
 
 type AppView = 'dashboard' | 'calendar' | 'discovery' | 'ops' | 'analytics' | 'drafts' | 'accounts' | 'settings';
 
@@ -148,7 +149,7 @@ export default function Home() {
           <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-4">
             <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Your X Accounts</h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Connect up to two X profiles to manage them from one place.
+              Connect up to three X profiles to manage them from one place.
             </p>
           </div>
           <TwitterConnector />
@@ -167,6 +168,7 @@ export default function Home() {
             </p>
           </div>
         </div>
+        <CliAuthPanel />
         <SetupPanel />
       </div>
     );

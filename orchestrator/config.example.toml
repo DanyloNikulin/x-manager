@@ -41,7 +41,13 @@ timeout_seconds = 600
 [accounts.1]
 workspace = "../accounts/slot-1"
 language = "en"
+post_mode = "auto"
+inbound_reply_mode = "auto"
+outbound_reply_mode = "approval"
 
 [accounts.2]
 workspace = "../accounts/slot-2"
 language = "en"
+post_mode = "auto"
+inbound_reply_mode = "auto"
+outbound_reply_mode = "approval"

@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -53,6 +53,20 @@ pub struct AccountConfig {
     pub workspace: PathBuf,
     #[serde(default = "default_language")]
     pub language: String,
+    #[serde(default = "default_post_mode")]
+    pub post_mode: PublicationMode,
+    #[serde(default = "default_inbound_reply_mode")]
+    pub inbound_reply_mode: PublicationMode,
+    #[serde(default = "default_outbound_reply_mode")]
+    pub outbound_reply_mode: PublicationMode,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PublicationMode {
+    Auto,
+    Approval,
+    Draft,
 }
 
 fn default_admin_token_env() -> String {
@@ -63,6 +77,15 @@ fn default_assigned_agent() -> String {
 }
 fn default_language() -> String {
     "en".into()
+}
+fn default_post_mode() -> PublicationMode {
+    PublicationMode::Auto
+}
+fn default_inbound_reply_mode() -> PublicationMode {
+    PublicationMode::Auto
+}
+fn default_outbound_reply_mode() -> PublicationMode {
+    PublicationMode::Approval
 }
 fn default_max_tasks() -> usize {
     2

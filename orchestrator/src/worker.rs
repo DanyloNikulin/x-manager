@@ -8,7 +8,7 @@ use tracing::{info, warn};
 
 use crate::{
     agents::run_json_agent,
-    config::{AccountConfig, Config},
+    config::{AccountConfig, Config, PublicationMode},
     manager::ManagerClient,
     models::{ValidatorOutput, Verdict, WorkerTask, WriterOutput},
 };
@@ -37,6 +37,7 @@ pub async fn run_once(config: &Config, manager: &ManagerClient) -> Result<usize>
             Ok(ProcessedTask::Drafted {
                 text,
                 reply_to_tweet_id,
+                publication_mode,
                 audit,
             }) => {
                 manager
@@ -45,10 +46,15 @@ pub async fn run_once(config: &Config, manager: &ManagerClient) -> Result<usize>
                         &config.worker.id,
                         &text,
                         reply_to_tweet_id.as_deref(),
+                        publication_mode,
                         audit,
                     )
                     .await?;
-                info!(task_id = task.id, "draft created");
+                info!(
+                    task_id = task.id,
+                    ?publication_mode,
+                    "validated content submitted"
+                );
             }
             Ok(ProcessedTask::NeedsReview {
                 text,
@@ -83,6 +89,7 @@ enum ProcessedTask {
     Drafted {
         text: String,
         reply_to_tweet_id: Option<String>,
+        publication_mode: PublicationMode,
         audit: Value,
     },
     NeedsReview {
@@ -132,11 +139,13 @@ async fn process_claimed_task(config: &Config, task: &WorkerTask) -> Result<Proc
     }
 
     let candidate = writer_output.recommended()?;
+    let configured_publication_mode = publication_mode(task, account);
     let audit = json!({
         "writer": writer_output,
         "validation": validation,
         "worker_id": config.worker.id,
         "account_slot": task.account_slot,
+        "publication_mode": configured_publication_mode,
     });
 
     if validation.verdict != Verdict::Pass || validation.score < 70 {
@@ -148,9 +157,18 @@ async fn process_claimed_task(config: &Config, task: &WorkerTask) -> Result<Proc
         });
     }
 
+    if configured_publication_mode == PublicationMode::Approval {
+        return Ok(ProcessedTask::NeedsReview {
+            text: Some(candidate.text.trim().to_owned()),
+            reply_to_tweet_id: reply_target(task.details.as_deref()),
+            audit,
+        });
+    }
+
     Ok(ProcessedTask::Drafted {
         text: candidate.text.trim().to_owned(),
         reply_to_tweet_id: reply_target(task.details.as_deref()),
+        publication_mode: configured_publication_mode,
         audit,
     })
 }
@@ -178,7 +196,7 @@ CANDIDATE:
 SOURCES CLAIMED BY WRITER:
 {sources}
 
-Return only JSON matching the configured schema. Use pass only when the candidate is safe to place into the approval queue. A pass does not publish anything."#,
+Return only JSON matching the configured schema. Use pass only when the candidate is safe for automatic publication when account policy allows it. A pass never overrides the worker's publication mode."#,
         task_type = task.task_type,
         objective = task.campaign_objective,
         details = task.details.as_deref().unwrap_or(""),
@@ -292,6 +310,22 @@ fn reply_target(details: Option<&str>) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn publication_mode(task: &WorkerTask, account: &AccountConfig) -> PublicationMode {
+    if task.task_type != "reply" {
+        return account.post_mode;
+    }
+    let reply_kind = task
+        .details
+        .as_deref()
+        .and_then(|details| serde_json::from_str::<Value>(details).ok())
+        .and_then(|value| value.get("reply_kind")?.as_str().map(str::to_owned));
+    if reply_kind.as_deref() == Some("inbound") {
+        account.inbound_reply_mode
+    } else {
+        account.outbound_reply_mode
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -303,5 +337,30 @@ mod tests {
             Some("123")
         );
         assert_eq!(reply_target(Some("not-json")), None);
+    }
+
+    #[test]
+    fn chooses_inbound_and_outbound_reply_modes() {
+        let account = AccountConfig {
+            workspace: "slot".into(),
+            language: "en".into(),
+            post_mode: PublicationMode::Auto,
+            inbound_reply_mode: PublicationMode::Auto,
+            outbound_reply_mode: PublicationMode::Approval,
+        };
+        let mut task = WorkerTask {
+            id: 1,
+            campaign_id: 1,
+            task_type: "reply".into(),
+            title: "reply".into(),
+            details: Some(r#"{"reply_kind":"inbound"}"#.into()),
+            account_slot: 1,
+            campaign_name: "campaign".into(),
+            campaign_objective: "objective".into(),
+            campaign_instructions: None,
+        };
+        assert_eq!(publication_mode(&task, &account), PublicationMode::Auto);
+        task.details = Some(r#"{"reply_kind":"outbound"}"#.into());
+        assert_eq!(publication_mode(&task, &account), PublicationMode::Approval);
     }
 }

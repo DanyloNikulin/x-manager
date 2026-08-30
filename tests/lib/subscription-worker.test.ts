@@ -3,6 +3,7 @@ import {
   isWorkerTaskType,
   parsePositiveTaskId,
   parseWorkerId,
+  parseWorkerPublicationMode,
   parseWorkerTaskQuery,
 } from '../../src/lib/subscription-worker';
 
@@ -35,5 +36,12 @@ describe('subscription worker contracts', () => {
     expect(isWorkerTaskType('research')).toBe(false);
     expect(isWorkerTaskType('dm')).toBe(false);
     expect(isWorkerTaskType('like')).toBe(false);
+  });
+
+  it('accepts only explicit publication modes', () => {
+    expect(parseWorkerPublicationMode('auto')).toBe('auto');
+    expect(parseWorkerPublicationMode('draft')).toBe('draft');
+    expect(parseWorkerPublicationMode('approval')).toBeNull();
+    expect(parseWorkerPublicationMode(undefined)).toBeNull();
   });
 });
