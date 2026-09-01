@@ -2,14 +2,10 @@ import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { savedSearches } from '@/lib/db/schema';
+import { asPositiveInt } from '@/lib/http-parse';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-function parseId(id: string): number | null {
-  const parsed = Number.parseInt(id, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
 
 function serializeSearch(search: typeof savedSearches.$inferSelect) {
   return {
@@ -21,7 +17,7 @@ function serializeSearch(search: typeof savedSearches.$inferSelect) {
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const searchId = parseId(id);
+    const searchId = asPositiveInt(id);
     if (!searchId) return NextResponse.json({ error: 'Invalid saved search id.' }, { status: 400 });
 
     const body = await req.json() as Record<string, unknown>;
@@ -47,7 +43,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const searchId = parseId(id);
+    const searchId = asPositiveInt(id);
     if (!searchId) return NextResponse.json({ error: 'Invalid saved search id.' }, { status: 400 });
 
     const deleted = await db.delete(savedSearches).where(eq(savedSearches.id, searchId)).returning();

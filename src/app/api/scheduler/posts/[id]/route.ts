@@ -7,6 +7,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { scheduledPosts } from '@/lib/db/schema';
 import { parseAccountSlot, type AccountSlot } from '@/lib/account-slots';
+import { parseStringArray } from '@/lib/json-array';
 import { canonicalizeUrl, computeDedupeKey, extractFirstUrl, normalizeCopy } from '@/lib/scheduler-dedupe';
 import {
   ensureSafeUploadUrl,
@@ -18,19 +19,6 @@ import {
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-function parseJsonArray(value: string | null): string[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) {
-      return parsed.filter((item): item is string => typeof item === 'string');
-    }
-  } catch {
-    // ignore
-  }
-  return [];
-}
 
 async function deleteMediaFiles(urls: string[]): Promise<void> {
   for (const rawUrl of urls) {
@@ -83,7 +71,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       );
     }
 
-    const oldMediaUrls = parseJsonArray(existingPost[0].mediaUrls);
+    const oldMediaUrls = parseStringArray(existingPost[0].mediaUrls);
 
     const mediaUrls: string[] = [];
     if (files.length > 0) {
@@ -249,7 +237,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 
     const existingPost = await db.select().from(scheduledPosts).where(eq(scheduledPosts.id, postId)).limit(1);
     if (existingPost.length > 0) {
-      await deleteMediaFiles(parseJsonArray(existingPost[0].mediaUrls));
+      await deleteMediaFiles(parseStringArray(existingPost[0].mediaUrls));
     }
 
     await db.delete(scheduledPosts).where(eq(scheduledPosts.id, postId));

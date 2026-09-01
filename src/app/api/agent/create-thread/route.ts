@@ -110,7 +110,10 @@ export async function POST(req: Request) {
         communityId: asString(body.community_id ?? body.communityId),
         replyToTweetId: asString(body.reply_to_tweet_id ?? body.replyToTweetId),
         sourceUrl: draft.source_url,
-        tweets: draft.tweets,
+        tweets: draft.tweets.map((tweet) => ({
+          text: tweet.text,
+          mediaUrls: tweet.media_urls,
+        })),
       });
       return NextResponse.json({
         ...baseResponse,

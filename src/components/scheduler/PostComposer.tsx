@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState, type ChangeEvent, type SyntheticEvent } from 'react';
 import { Smile, ImageIcon, X, Save, Loader2, Sparkles } from 'lucide-react';
 import { MdOutlineGifBox } from "react-icons/md";
 import EmojiPicker, { EmojiClickData, EmojiStyle, Theme } from 'emoji-picker-react';
@@ -8,81 +9,170 @@ import { Grid } from '@giphy/react-components';
 import type { IGif } from '@giphy/js-types';
 import AiWriter from '../AiWriter';
 import type { CommunityTag, ScheduledPost } from './types';
-import { formatDateTimeForInput } from './datetime';
+import { formatDateTimeForInput, isDateTimeInPast, parseDateTimeInput } from './datetime';
+import { useToast } from '../ui/Toast';
 
 const gf = new GiphyFetch(process.env.NEXT_PUBLIC_GIPHY_API_KEY || '__REMOVED__');
 
 interface PostComposerProps {
   editingPost: ScheduledPost | null;
-  postText: string;
-  setPostText: (value: string | ((prev: string) => string)) => void;
-  showEmojiPicker: boolean;
-  setShowEmojiPicker: (value: boolean | ((prev: boolean) => boolean)) => void;
-  showGifPicker: boolean;
-  setShowGifPicker: (value: boolean | ((prev: boolean) => boolean)) => void;
-  gifSearchTerm: string;
-  setGifSearchTerm: (value: string) => void;
-  attachedGifs: string[];
-  attachedImages: File[];
-  imagePreviewUrls: string[];
-  selectedDateTime: string;
-  setSelectedDateTime: (value: string) => void;
-  dateTimeError: string;
-  selectedAccountSlot: number;
-  setSelectedAccountSlot: (value: number) => void;
-  selectedCommunityTag: string;
-  setSelectedCommunityTag: (value: string) => void;
+  seedDate?: Date;
   communityTags: CommunityTag[];
-  replyToTweetId: string;
-  setReplyToTweetId: (value: string) => void;
-  isSubmitting: boolean;
-  preserveScrollPosition: (callback: () => void) => void;
-  setShowCreateForm: (value: boolean) => void;
-  resetForm: () => void;
-  handleEmojiSelect: (emoji: string) => void;
-  handleGifSelect: (gif: IGif, e: React.SyntheticEvent) => void;
-  handleImageAttach: (event: React.ChangeEvent<HTMLInputElement>) => void;
-  removeAttachedImage: (index: number) => void;
-  removeAttachedGif: (index: number) => void;
-  validateDateTime: (value: string) => boolean;
-  handleSubmitPost: () => void;
+  onClose: () => void;
+  onSaved: () => void;
 }
 
 export function PostComposer({
   editingPost,
-  postText,
-  setPostText,
-  showEmojiPicker,
-  setShowEmojiPicker,
-  showGifPicker,
-  setShowGifPicker,
-  gifSearchTerm,
-  setGifSearchTerm,
-  attachedGifs,
-  attachedImages,
-  imagePreviewUrls,
-  selectedDateTime,
-  setSelectedDateTime,
-  dateTimeError,
-  selectedAccountSlot,
-  setSelectedAccountSlot,
-  selectedCommunityTag,
-  setSelectedCommunityTag,
+  seedDate,
   communityTags,
-  replyToTweetId,
-  setReplyToTweetId,
-  isSubmitting,
-  preserveScrollPosition,
-  setShowCreateForm,
-  resetForm,
-  handleEmojiSelect,
-  handleGifSelect,
-  handleImageAttach,
-  removeAttachedImage,
-  removeAttachedGif,
-  validateDateTime,
-  handleSubmitPost,
+  onClose,
+  onSaved,
 }: PostComposerProps) {
+  const { toast } = useToast();
+  const [postText, setPostText] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showGifPicker, setShowGifPicker] = useState(false);
+  const [gifSearchTerm, setGifSearchTerm] = useState('');
+  const [attachedGifs, setAttachedGifs] = useState<string[]>([]);
+  const [attachedImages, setAttachedImages] = useState<File[]>([]);
+  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
+  const [selectedDateTime, setSelectedDateTime] = useState('');
+  const [dateTimeError, setDateTimeError] = useState('');
+  const [selectedAccountSlot, setSelectedAccountSlot] = useState(1);
+  const [selectedCommunityTag, setSelectedCommunityTag] = useState('');
+  const [replyToTweetId, setReplyToTweetId] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const urls = attachedImages.map((file) => URL.createObjectURL(file));
+    setImagePreviewUrls(urls);
+    return () => urls.forEach((url) => URL.revokeObjectURL(url));
+  }, [attachedImages]);
+
+  useEffect(() => {
+    if (editingPost) {
+      setPostText(editingPost.text);
+      const dateTimeValue = formatDateTimeForInput(new Date(editingPost.scheduledTime));
+      setSelectedDateTime(dateTimeValue);
+      setDateTimeError(isDateTimeInPast(dateTimeValue) ? 'Cannot schedule posts in the past. Please select a future date and time.' : '');
+      const communityTag = communityTags.find((tag) => tag.communityId === editingPost.communityId);
+      setSelectedCommunityTag(communityTag?.tagName || '');
+      setReplyToTweetId(editingPost.replyToTweetId || '');
+      setSelectedAccountSlot(editingPost.accountSlot || 1);
+      setAttachedImages([]);
+      setAttachedGifs([]);
+      return;
+    }
+    const now = new Date();
+    const targetDate = seedDate ? new Date(seedDate) : new Date();
+    targetDate.setHours(now.getHours(), now.getMinutes(), 0, 0);
+    const defaultDateTime = formatDateTimeForInput(targetDate);
+    setPostText('');
+    setSelectedDateTime(defaultDateTime);
+    setSelectedCommunityTag('');
+    setReplyToTweetId('');
+    setSelectedAccountSlot(1);
+    setDateTimeError(isDateTimeInPast(defaultDateTime) ? 'Cannot schedule posts in the past. Please select a future date and time.' : '');
+    setAttachedImages([]);
+    setAttachedGifs([]);
+  }, [editingPost, seedDate, communityTags]);
+
+  const validateDateTime = (value: string) => {
+    if (!value) {
+      setDateTimeError('');
+      return true;
+    }
+    if (isDateTimeInPast(value)) {
+      setDateTimeError('Cannot schedule posts in the past. Please select a future date and time.');
+      return false;
+    }
+    setDateTimeError('');
+    return true;
+  };
+
+  const handleEmojiSelect = (emoji: string) => {
+    setPostText((prev) => prev + emoji);
+    setShowEmojiPicker(false);
+  };
+
+  const handleImageAttach = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files) return;
+    const imageFiles = Array.from(files).filter((file) => file.type.startsWith('image/') && file.type !== 'image/gif');
+    const currentImageCount = attachedImages.filter((file) => file.type !== 'image/gif').length;
+    const availableSlots = 4 - currentImageCount;
+    const allowedNewFiles = imageFiles.slice(0, availableSlots);
+    if (imageFiles.length > availableSlots) {
+      toast({ variant: 'warning', title: 'Image limit', description: `Max 4 images. ${imageFiles.length - availableSlots} files were not added.` });
+    }
+    setAttachedImages((prev) => [...prev, ...allowedNewFiles]);
+  };
+
+  const handleGifSelect = async (gif: IGif, e: SyntheticEvent) => {
+    e.preventDefault();
+    if (attachedGifs.length >= 1) {
+      toast({ variant: 'warning', title: 'GIF limit', description: 'You can only attach 1 GIF at a time.' });
+      return;
+    }
+    setAttachedGifs((prev) => [...prev, gif.images.original.url]);
+    setShowGifPicker(false);
+  };
+
+  const handleSubmitPost = async () => {
+    if (!postText.trim() || !selectedDateTime) return;
+    const scheduledDateTime = parseDateTimeInput(selectedDateTime);
+    if (!scheduledDateTime) {
+      setDateTimeError('Please select a valid date and time.');
+      return;
+    }
+    if (scheduledDateTime < new Date()) {
+      setDateTimeError('Cannot schedule posts in the past. Please select a future date and time.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const selectedTag = communityTags.find((tag) => tag.tagName === selectedCommunityTag);
+      const formData = new FormData();
+      formData.append('text', postText);
+      formData.append('scheduled_time', scheduledDateTime.toISOString());
+      formData.append('account_slot', String(selectedAccountSlot));
+      if (selectedTag) formData.append('community_id', selectedTag.communityId);
+      if (replyToTweetId.trim()) formData.append('reply_to_tweet_id', replyToTweetId.trim());
+      attachedImages.forEach((file) => formData.append('files', file));
+      for (const gifUrl of attachedGifs) {
+        try {
+          const response = await fetch(gifUrl);
+          const blob = await response.blob();
+          formData.append('files', new File([blob], `gif_${Date.now()}.gif`, { type: 'image/gif' }));
+        } catch (error) {
+          console.error('Error processing GIF:', error);
+        }
+      }
+      const response = await fetch(
+        editingPost ? `/api/scheduler/posts/${editingPost.id}` : '/api/scheduler/posts',
+        { method: editingPost ? 'PUT' : 'POST', body: formData },
+      );
+      if (!response.ok) throw new Error('Failed to save post');
+      toast({ variant: 'success', title: editingPost ? 'Post updated' : 'Post scheduled' });
+      onSaved();
+      onClose();
+    } catch (error) {
+      console.error('Error saving post:', error);
+      toast({ variant: 'error', title: 'Save failed', description: 'Failed to save post. Please try again.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const removeAttachedImage = (index: number) => {
+    setAttachedImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const removeAttachedGif = (index: number) => {
+    setAttachedGifs((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const fetchGifs = (offset: number) => {
     if (gifSearchTerm.trim()) {
       return gf.search(gifSearchTerm, { offset, limit: 10 });
@@ -99,12 +189,7 @@ export function PostComposer({
                 {editingPost ? 'Edit Scheduled Post' : 'Create Scheduled Post'}
               </h3>
               <button
-                onClick={() => {
-                  preserveScrollPosition(() => {
-                    setShowCreateForm(false);
-                    resetForm();
-                  });
-                }}
+                onClick={onClose}
                 className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300"
               >
                 <X size={24} />
@@ -392,12 +477,7 @@ export function PostComposer({
               {/* Actions */}
               <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-3 pt-4 border-t border-gray-200 dark:border-slate-700">
                 <button
-                  onClick={() => {
-                    preserveScrollPosition(() => {
-                      setShowCreateForm(false);
-                      resetForm();
-                    });
-                  }}
+                  onClick={onClose}
                   className="px-4 py-2 text-gray-600 dark:text-slate-300 hover:text-gray-800 dark:hover:text-slate-100 transition-colors order-2 sm:order-1"
                 >
                   Cancel

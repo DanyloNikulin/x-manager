@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db } from './db';
-import { engagementActions, xAccounts } from './db/schema';
+import { engagementActions, engagementInbox, xAccounts } from './db/schema';
 import { decryptAccountTokens } from './x-account-crypto';
 import { normalizeAccountSlot, type AccountSlot } from './account-slots';
 
@@ -55,4 +55,11 @@ export async function recordEngagementAction(params: {
     errorMessage: params.errorMessage ?? null,
     updatedAt: new Date(),
   });
+}
+
+export async function markInboxReplied(inboxId: number): Promise<void> {
+  await db
+    .update(engagementInbox)
+    .set({ status: 'replied', updatedAt: new Date() })
+    .where(eq(engagementInbox.id, inboxId));
 }

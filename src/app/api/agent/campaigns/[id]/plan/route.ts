@@ -3,15 +3,14 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { campaignTasks, campaigns } from '@/lib/db/schema';
 import { buildDefaultCampaignPlan } from '@/lib/campaign-planner';
-import { asBool, asInt } from '@/lib/http-parse';
+import { asBool, asPositiveInt } from '@/lib/http-parse';
 
 type PlanBody = {
   save?: unknown;
 };
 
 function parseCampaignId(raw: string): number | null {
-  const parsed = asInt(raw);
-  return parsed !== null && parsed > 0 ? parsed : null;
+  return asPositiveInt(raw);
 }
 
 export const runtime = 'nodejs';

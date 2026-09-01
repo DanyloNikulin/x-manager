@@ -7,18 +7,13 @@ import { parseAccountSlot, type AccountSlot } from '@/lib/account-slots';
 import { canonicalizeUrl, computeDedupeKey, extractFirstUrl, normalizeCopy } from '@/lib/scheduler-dedupe';
 import { ensureSafeUploadUrl } from '@/lib/uploads';
 import { isSqliteConstraintError } from '@/lib/sqlite-errors';
-import { asString } from '@/lib/http-parse';
 
 export interface ThreadTweetInput {
   text: string;
   mediaUrls?: string[] | null;
-  media_urls?: string[] | null;
   communityId?: string | null;
-  community_id?: string | null;
   replyToTweetId?: string | null;
-  reply_to_tweet_id?: string | null;
   sourceUrl?: string | null;
-  source_url?: string | null;
 }
 
 export interface ScheduleThreadOptions {
@@ -41,7 +36,7 @@ export interface ScheduleThreadResult {
 }
 
 function pickMediaUrls(input: ThreadTweetInput): string[] {
-  const raw = input.mediaUrls ?? input.media_urls ?? [];
+  const raw = input.mediaUrls ?? [];
   if (!raw || !Array.isArray(raw)) return [];
   return raw.filter((item): item is string => typeof item === 'string').slice(0, 4);
 }
@@ -76,14 +71,14 @@ export async function scheduleThread(options: ScheduleThreadOptions): Promise<Sc
   const computed = tweets.map((tweet, index) => {
     const text = typeof tweet.text === 'string' ? tweet.text : '';
     const mediaUrls = normalizeMediaUrls(pickMediaUrls(tweet));
-    const communityId = asString(tweet.community_id ?? tweet.communityId) ?? defaultCommunityId;
+    const communityId = tweet.communityId ?? defaultCommunityId;
     const replyToTweetId = index === 0
-      ? (asString(tweet.reply_to_tweet_id ?? tweet.replyToTweetId) ?? threadReplyToTweetId)
+      ? (tweet.replyToTweetId ?? threadReplyToTweetId)
       : null;
 
     const sourceUrlCandidate =
       threadSourceUrl ??
-      asString(tweet.source_url ?? tweet.sourceUrl) ??
+      tweet.sourceUrl ??
       extractFirstUrl(text);
 
     const canonicalUrl = sourceUrlCandidate ? canonicalizeUrl(sourceUrlCandidate) : null;

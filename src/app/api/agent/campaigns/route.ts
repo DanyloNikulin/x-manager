@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { campaigns } from '@/lib/db/schema';
 import { normalizeAccountSlot } from '@/lib/account-slots';
-import { asString } from '@/lib/http-parse';
+import { asDate, asString } from '@/lib/http-parse';
 
 type CampaignCreateBody = {
   name?: unknown;
@@ -17,12 +17,6 @@ type CampaignCreateBody = {
 
 const ALLOWED_STATUSES = ['draft', 'active', 'paused', 'completed', 'archived'] as const;
 type CampaignStatus = (typeof ALLOWED_STATUSES)[number];
-
-function asDate(value: unknown): Date | null {
-  if (typeof value !== 'string' || !value.trim()) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
 
 function asCampaignStatus(value: unknown): CampaignStatus | null {
   const parsed = asString(value);

@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { campaignTasks } from '@/lib/db/schema';
-import { asInt, asString, clamp } from '@/lib/http-parse';
+import { asDate, asInt, asPositiveInt, asString, clamp } from '@/lib/http-parse';
 
 type TaskPatchBody = {
   status?: unknown;
@@ -16,12 +16,6 @@ type TaskPatchBody = {
 
 const ALLOWED_STATUSES = ['pending', 'in_progress', 'waiting_approval', 'done', 'failed', 'skipped'] as const;
 type TaskStatus = (typeof ALLOWED_STATUSES)[number];
-
-function asDate(value: unknown): Date | null {
-  if (typeof value !== 'string' || !value.trim()) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
 
 function asPriority(value: unknown): number | null {
   const parsed = asInt(value);
@@ -37,8 +31,7 @@ function asTaskStatus(value: unknown): TaskStatus | null {
 }
 
 function parseTaskId(raw: string): number | null {
-  const parsed = asInt(raw);
-  return parsed !== null && parsed > 0 ? parsed : null;
+  return asPositiveInt(raw);
 }
 
 export const runtime = 'nodejs';

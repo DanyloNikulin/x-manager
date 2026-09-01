@@ -4,7 +4,7 @@ import { parseAccountSlot, type AccountSlot } from '@/lib/account-slots';
 import { scheduleThread, type ThreadTweetInput } from '@/lib/thread-scheduler';
 import { withIdempotency } from '@/lib/idempotency';
 import { suggestOptimalTime } from '@/lib/optimal-time';
-import { asBool, asString } from '@/lib/http-parse';
+import { asBool, asString, isProvided } from '@/lib/http-parse';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,13 +28,20 @@ type ThreadScheduleRequest = {
   tweets?: unknown;
 };
 
-function isProvided(value: unknown): boolean {
-  if (value === undefined || value === null) return false;
-  if (typeof value === 'string' && value.trim().length === 0) return false;
-  return true;
+function asTweetInput(value: unknown): ThreadTweetInput | null {
+  if (!value || typeof value !== 'object') return null;
+  const rec = value as Record<string, unknown>;
+  const text = asString(rec.text);
+  if (!text) return null;
+  const media = rec.mediaUrls ?? rec.media_urls;
+  return {
+    text,
+    mediaUrls: Array.isArray(media) ? media.filter((item): item is string => typeof item === 'string') : undefined,
+    communityId: asString(rec.communityId ?? rec.community_id),
+    replyToTweetId: asString(rec.replyToTweetId ?? rec.reply_to_tweet_id),
+    sourceUrl: asString(rec.sourceUrl ?? rec.source_url),
+  };
 }
-
-
 
 export async function POST(req: Request) {
   return withIdempotency('scheduler-thread', req, async () => {
@@ -69,7 +76,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing tweets. Provide an array of tweet objects.' }, { status: 400 });
     }
 
-    const tweets = tweetsRaw as ThreadTweetInput[];
+    const tweets = tweetsRaw.map(asTweetInput).filter((tweet): tweet is ThreadTweetInput => tweet !== null);
+    if (tweets.length !== tweetsRaw.length) {
+      return NextResponse.json({ error: 'Each tweet must include non-empty text.' }, { status: 400 });
+    }
     const dedupe = asBool(body.dedupe, true);
     const threadId = asString(body.thread_id ?? body.threadId) ?? undefined;
     const communityId = asString(body.community_id ?? body.communityId);

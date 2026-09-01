@@ -1,5 +1,5 @@
 import { checkPolicy } from './policy';
-import { requireConnectedAccount, recordEngagementAction } from './engagement-ops';
+import { requireConnectedAccount, recordEngagementAction, markInboxReplied } from './engagement-ops';
 import { postTweet, sendDirectMessage, likeTweet, repostTweet } from './twitter-api-client';
 import { getResolvedXConfig, type ResolvedXConfig } from './x-config';
 import type { AccountSlot } from './account-slots';
@@ -121,7 +121,7 @@ export async function executeXAction(input: ExecuteXActionInput): Promise<unknow
           account.twitterAccessTokenSecret,
           input.mediaIds ?? [],
           input.communityId,
-          input.type === 'reply' ? input.targetId || undefined : input.targetId || undefined,
+          input.targetId || undefined,
           config,
         );
         if (tweetResult.errors?.length) {
@@ -178,6 +178,9 @@ export async function executeXAction(input: ExecuteXActionInput): Promise<unknow
     }
 
     await recordSuccess(result);
+    if (input.inboxId && (input.type === 'reply' || input.type === 'dm')) {
+      await markInboxReplied(input.inboxId);
+    }
     return result;
   } catch (error) {
     if (error instanceof XActionError) throw error;

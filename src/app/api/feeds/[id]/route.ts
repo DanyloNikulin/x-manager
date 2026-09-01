@@ -3,19 +3,15 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { feeds } from '@/lib/db/schema';
 import { assertPublicUrl } from '@/lib/network-safety';
+import { asPositiveInt } from '@/lib/http-parse';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function parseId(id: string): number | null {
-  const parsed = Number.parseInt(id, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const feedId = parseId(id);
+    const feedId = asPositiveInt(id);
     if (!feedId) return NextResponse.json({ error: 'Invalid feed id.' }, { status: 400 });
 
     const body = await req.json() as Record<string, unknown>;
@@ -43,7 +39,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const feedId = parseId(id);
+    const feedId = asPositiveInt(id);
     if (!feedId) return NextResponse.json({ error: 'Invalid feed id.' }, { status: 400 });
 
     const deleted = await db.delete(feeds).where(eq(feeds.id, feedId)).returning();

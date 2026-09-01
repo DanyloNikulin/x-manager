@@ -1,23 +1,11 @@
 import type BetterSqlite3 from 'better-sqlite3';
 import { canonicalizeUrl, computeDedupeKey, extractFirstUrl, normalizeCopy } from '../scheduler-dedupe';
 import { canEncryptSecrets, encryptValue, isEncryptedValue } from '../crypto-store';
+import { schemaTableNames } from './ensure-tables';
 
 type SqliteDb = BetterSqlite3.Database;
 
-const KNOWN_TABLES = new Set([
-  'user', 'x_accounts', 'scheduled_posts', 'community_tags', 'system_prompts',
-  'topic_search_cache', 'app_settings', 'scheduler_locks', 'engagement_inbox',
-  'engagement_actions', 'campaigns', 'campaign_tasks', 'campaign_approvals',
-  'api_idempotency', 'agent_runs', 'agent_run_steps', 'scheduled_actions',
-  'x_api_calls', 'engagement_cursors', 'inbox_tags', 'inbox_notes',
-  'draft_posts', 'post_templates', 'post_metrics', 'saved_replies',
-  'content_queue', 'agent_webhooks', 'events', 'webhook_deliveries',
-  'media_library', 'recurring_schedules', 'content_pool',
-  'automation_rules', 'automation_rule_runs', 'feeds', 'feed_entries',
-  'saved_searches', 'saved_search_matches',
-  'short_urls', 'url_clicks', 'follower_snapshots',
-  'post_approvals',
-]);
+const KNOWN_TABLES = new Set(schemaTableNames());
 
 function hasColumn(sqlite: SqliteDb, tableName: string, columnName: string): boolean {
   if (!KNOWN_TABLES.has(tableName)) {

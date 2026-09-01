@@ -6,6 +6,8 @@
  * See: https://developer.x.com/en/docs/counting-characters
  */
 
+export const TWITTER_MAX_CHARS = 280;
+export const TWITTER_WARN_CHARS = 260;
 const TWITTER_URL_WEIGHT = 23;
 
 // Matches http:// and https:// URLs in tweet text.
@@ -130,4 +132,43 @@ export function truncateForTwitter(text: string, maxWeighted = 280): string {
   }
 
   return result;
+}
+
+export type TweetSegment = {
+  type: 'text' | 'url' | 'mention' | 'hashtag';
+  value: string;
+};
+
+/** Split tweet text into plain text, URLs, @mentions, and #hashtags. */
+export function parseTweetSegments(text: string): TweetSegment[] {
+  const tokens = text.split(/(\s+)/);
+  const segments: TweetSegment[] = [];
+
+  for (const token of tokens) {
+    if (/^\s+$/.test(token)) {
+      segments.push({ type: 'text', value: token });
+    } else if (/^https?:\/\//i.test(token)) {
+      segments.push({ type: 'url', value: token });
+    } else if (/^@\w+/.test(token)) {
+      const match = token.match(/^(@\w+)(.*)/s);
+      if (match) {
+        segments.push({ type: 'mention', value: match[1] });
+        if (match[2]) segments.push({ type: 'text', value: match[2] });
+      } else {
+        segments.push({ type: 'text', value: token });
+      }
+    } else if (/^#\w+/.test(token)) {
+      const match = token.match(/^(#\w+)(.*)/s);
+      if (match) {
+        segments.push({ type: 'hashtag', value: match[1] });
+        if (match[2]) segments.push({ type: 'text', value: match[2] });
+      } else {
+        segments.push({ type: 'text', value: token });
+      }
+    } else {
+      segments.push({ type: 'text', value: token });
+    }
+  }
+
+  return segments;
 }

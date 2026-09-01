@@ -1,75 +1,91 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useState, type DragEvent } from 'react';
 import { Edit, Trash2, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
-import type { CalendarViewMode, CommunityTag, QueueItem, ScheduledPost } from './types';
+import type { CalendarViewMode, CommunityTag, ScheduledPost } from './types';
 import { formatDateForDisplay, formatTimeForDisplay, generateWeekDays, getMonthDays } from './datetime';
 import { getMediaCount, getStatusColor, getStatusIcon } from './status';
+import { QueuePanel } from './QueuePanel';
 
 interface CalendarBoardProps {
   compact: boolean;
-  viewMode: CalendarViewMode;
-  setViewMode: (mode: CalendarViewMode) => void;
-  currentDate: Date;
-  setCurrentDate: (date: Date) => void;
-  currentWeek: Date;
   scheduledPosts: ScheduledPost[];
   visibleSlots: number[];
   communityTags: CommunityTag[];
-  queueItems: QueueItem[];
-  searchQuery: string;
-  setSearchQuery: (value: string) => void;
-  statusFilter: string;
-  setStatusFilter: (value: string) => void;
-  bulkMode: boolean;
-  setBulkMode: (value: boolean) => void;
-  selectedPostIds: Set<string>;
-  setSelectedPostIds: (ids: Set<string>) => void;
-  handleBulkAction: (action: string) => void;
-  navigatePrev: () => void;
-  navigateToday: () => void;
-  navigateNext: () => void;
-  handleCreatePost: (date?: Date) => void;
-  handleEditPost: (post: ScheduledPost) => void;
-  handleDeletePost: (postId: string) => void;
-  handleDragStart: (postId: string) => void;
-  handleDragOver: (e: React.DragEvent) => void;
-  handleDropOnDate: (targetDate: Date, targetHour?: number) => void;
-  children?: ReactNode;
+  onCreatePost: (date?: Date) => void;
+  onEditPost: (post: ScheduledPost) => void;
+  onDeletePost: (postId: string) => void;
+  onDropOnDate: (targetDate: Date, targetHour?: number) => void;
+  onDragStart: (postId: string) => void;
+  onBulkAction: (action: string, postIds: string[]) => void;
+  onPostsChanged?: () => void;
 }
 
 export function CalendarBoard({
   compact,
-  viewMode,
-  setViewMode,
-  currentDate,
-  setCurrentDate,
-  currentWeek,
   scheduledPosts,
   visibleSlots,
   communityTags,
-  queueItems,
-  searchQuery,
-  setSearchQuery,
-  statusFilter,
-  setStatusFilter,
-  bulkMode,
-  setBulkMode,
-  selectedPostIds,
-  setSelectedPostIds,
-  handleBulkAction,
-  navigatePrev,
-  navigateToday,
-  navigateNext,
-  handleCreatePost,
-  handleEditPost,
-  handleDeletePost,
-  handleDragStart,
-  handleDragOver,
-  handleDropOnDate,
-  children,
+  onCreatePost,
+  onEditPost,
+  onDeletePost,
+  onDropOnDate,
+  onDragStart,
+  onBulkAction,
+  onPostsChanged,
 }: CalendarBoardProps) {
+  const [viewMode, setViewMode] = useState<CalendarViewMode>('week');
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentWeek, setCurrentWeek] = useState(new Date());
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedPostIds, setSelectedPostIds] = useState<Set<string>>(new Set());
+
   const weekDays = generateWeekDays(currentWeek);
+
+  const navigatePrev = () => {
+    if (viewMode === 'day') {
+      const next = new Date(currentDate);
+      next.setDate(next.getDate() - 1);
+      setCurrentDate(next);
+    } else if (viewMode === 'week') {
+      const next = new Date(currentWeek);
+      next.setDate(next.getDate() - 7);
+      setCurrentWeek(next);
+    } else {
+      const next = new Date(currentDate);
+      next.setMonth(next.getMonth() - 1);
+      setCurrentDate(next);
+    }
+  };
+
+  const navigateNext = () => {
+    if (viewMode === 'day') {
+      const next = new Date(currentDate);
+      next.setDate(next.getDate() + 1);
+      setCurrentDate(next);
+    } else if (viewMode === 'week') {
+      const next = new Date(currentWeek);
+      next.setDate(next.getDate() + 7);
+      setCurrentWeek(next);
+    } else {
+      const next = new Date(currentDate);
+      next.setMonth(next.getMonth() + 1);
+      setCurrentDate(next);
+    }
+  };
+
+  const navigateToday = () => {
+    const today = new Date();
+    setCurrentDate(today);
+    setCurrentWeek(today);
+  };
+
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
 
   const getPostsForDate = (date: Date) => {
     const dateString = date.toDateString();
@@ -137,8 +153,8 @@ export function CalendarBoard({
             {bulkMode && selectedPostIds.size > 0 && (
               <div className="flex items-center gap-2">
                 <span className="text-sm text-gray-600 dark:text-slate-300">{selectedPostIds.size} selected</span>
-                <button onClick={() => handleBulkAction('cancel')} className="px-3 py-1.5 bg-yellow-100 text-yellow-800 rounded-lg text-xs font-medium hover:bg-yellow-200">Cancel</button>
-                <button onClick={() => handleBulkAction('delete')} className="px-3 py-1.5 bg-red-100 text-red-800 rounded-lg text-xs font-medium hover:bg-red-200">Delete</button>
+                <button onClick={() => onBulkAction('cancel', Array.from(selectedPostIds))} className="px-3 py-1.5 bg-yellow-100 text-yellow-800 rounded-lg text-xs font-medium hover:bg-yellow-200">Cancel</button>
+                <button onClick={() => onBulkAction('delete', Array.from(selectedPostIds))} className="px-3 py-1.5 bg-red-100 text-red-800 rounded-lg text-xs font-medium hover:bg-red-200">Delete</button>
               </div>
             )}
           </div>
@@ -155,7 +171,7 @@ export function CalendarBoard({
               {viewMode === 'day' && currentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
               {viewMode === 'week' && `Week of ${formatDateForDisplay(weekDays[0])}`}
               {viewMode === 'month' && currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-              {viewMode === 'queue' && `Content Queue (${queueItems.length} items)`}
+              {viewMode === 'queue' && 'Content Queue'}
             </h3>
             <div className="flex items-center gap-3">
               {/* View mode toggle */}
@@ -208,8 +224,8 @@ export function CalendarBoard({
                             {new Date(post.scheduledTime).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} • {formatTimeForDisplay(post.scheduledTime)}
                           </span>
                           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                             <button onClick={() => handleEditPost(post)} className="text-slate-400 hover:text-blue-600"><Edit size={12}/></button>
-                             <button onClick={() => handleDeletePost(post.id)} className="text-slate-400 hover:text-red-600"><Trash2 size={12}/></button>
+                             <button onClick={() => onEditPost(post)} className="text-slate-400 hover:text-blue-600"><Edit size={12}/></button>
+                             <button onClick={() => onDeletePost(post.id)} className="text-slate-400 hover:text-red-600"><Trash2 size={12}/></button>
                           </div>
                        </div>
                        <p className="text-sm text-slate-800 line-clamp-3 mb-2 whitespace-pre-wrap">{post.text}</p>
@@ -249,7 +265,7 @@ export function CalendarBoard({
                       })}
                     </div>
                     <button
-                      onClick={() => handleCreatePost(day)}
+                      onClick={() => onCreatePost(day)}
                       className="p-2 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded transition-colors"
                       title="Add post"
                     >
@@ -273,7 +289,7 @@ export function CalendarBoard({
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleEditPost(post);
+                                  onEditPost(post);
                                 }}
                                 className="p-1 text-gray-400 dark:text-slate-500 hover:text-blue-600 transition-colors"
                                 title="Edit"
@@ -284,7 +300,7 @@ export function CalendarBoard({
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                handleDeletePost(post.id);
+                                onDeletePost(post.id);
                               }}
                               className="p-1 text-gray-400 dark:text-slate-500 hover:text-red-600 transition-colors"
                               title="Delete"
@@ -350,7 +366,7 @@ export function CalendarBoard({
                     key={hour}
                     className="flex min-h-[48px] hover:bg-slate-50 transition-colors"
                     onDragOver={handleDragOver}
-                    onDrop={() => handleDropOnDate(currentDate, hour)}
+                    onDrop={() => onDropOnDate(currentDate, hour)}
                   >
                     <div className="w-16 flex-shrink-0 py-2 px-3 text-xs text-slate-500 font-medium border-r border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900">
                       {hour.toString().padStart(2, '0')}:00
@@ -360,7 +376,7 @@ export function CalendarBoard({
                         <div
                           key={post.id}
                           draggable={post.status === 'scheduled'}
-                          onDragStart={() => handleDragStart(String(post.id))}
+                          onDragStart={() => onDragStart(String(post.id))}
                           className={`group relative p-2 rounded border text-xs cursor-grab active:cursor-grabbing flex-1 min-w-[200px] max-w-[400px] ${
                             (post.accountSlot || 1) === 1
                               ? 'bg-indigo-50/50 border-indigo-100 hover:border-indigo-300'
@@ -370,8 +386,8 @@ export function CalendarBoard({
                           <div className="flex items-center justify-between mb-1">
                             <span className="font-medium">{formatTimeForDisplay(post.scheduledTime)}</span>
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => handleEditPost(post)} className="p-1 text-gray-400 dark:text-slate-500 hover:text-blue-600"><Edit size={12} /></button>
-                              <button onClick={() => handleDeletePost(post.id)} className="p-1 text-gray-400 dark:text-slate-500 hover:text-red-600"><Trash2 size={12} /></button>
+                              <button onClick={() => onEditPost(post)} className="p-1 text-gray-400 dark:text-slate-500 hover:text-blue-600"><Edit size={12} /></button>
+                              <button onClick={() => onDeletePost(post.id)} className="p-1 text-gray-400 dark:text-slate-500 hover:text-red-600"><Trash2 size={12} /></button>
                             </div>
                           </div>
                           <p className="text-gray-600 dark:text-slate-300 line-clamp-2">{post.text}</p>
@@ -413,7 +429,7 @@ export function CalendarBoard({
                     key={day.toISOString()}
                     className={`min-h-[80px] border-r border-b border-gray-200 dark:border-slate-700 p-1 ${isToday ? 'bg-blue-50 dark:bg-blue-900/20' : ''} ${!isCurrentMonth ? 'opacity-50' : ''}`}
                     onDragOver={handleDragOver}
-                    onDrop={() => handleDropOnDate(day)}
+                    onDrop={() => onDropOnDate(day)}
                     onClick={() => {
                       setCurrentDate(day);
                       setViewMode('day');
@@ -430,7 +446,7 @@ export function CalendarBoard({
                             draggable={post.status === 'scheduled'}
                             onDragStart={(e) => {
                               e.stopPropagation();
-                              handleDragStart(String(post.id));
+                              onDragStart(String(post.id));
                             }}
                             className={`w-full text-[10px] px-1 py-0.5 rounded truncate cursor-grab ${
                               (post.accountSlot || 1) === 1
@@ -470,7 +486,7 @@ export function CalendarBoard({
                     isToday ? 'bg-blue-50 dark:bg-blue-900/20' : 'bg-white dark:bg-slate-800'
                   } last:border-r-0`}
                   onDragOver={handleDragOver}
-                  onDrop={() => handleDropOnDate(day)}
+                  onDrop={() => onDropOnDate(day)}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <div className={`text-sm font-medium ${
@@ -479,7 +495,7 @@ export function CalendarBoard({
                       {formatDateForDisplay(day)}
                     </div>
                     <button
-                      onClick={() => handleCreatePost(day)}
+                      onClick={() => onCreatePost(day)}
                       className="p-1 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded transition-colors"
                       title="Add post"
                     >
@@ -493,7 +509,7 @@ export function CalendarBoard({
                                           <div
                                             key={post.id}
                                             draggable={post.status === 'scheduled'}
-                                            onDragStart={() => handleDragStart(String(post.id))}
+                                            onDragStart={() => onDragStart(String(post.id))}
                                             className={`group relative p-2 rounded border text-xs hover:shadow-md transition-all cursor-grab active:cursor-grabbing ${
                                               (post.accountSlot || 1) === 1
                                                 ? 'bg-indigo-50/50 border-indigo-100 hover:border-indigo-300'
@@ -509,7 +525,7 @@ export function CalendarBoard({
                                               <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">                            <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleEditPost(post);
+                                onEditPost(post);
                               }}
                               className="p-1 text-gray-400 dark:text-slate-500 hover:text-blue-600 transition-colors"
                               title="Edit"
@@ -520,7 +536,7 @@ export function CalendarBoard({
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                handleDeletePost(post.id);
+                                onDeletePost(post.id);
                               }}
                               className="p-1 text-gray-400 dark:text-slate-500 hover:text-red-600 transition-colors"
                               title="Delete"
@@ -579,7 +595,7 @@ export function CalendarBoard({
         </div>
         )}
 
-        {children}
+        {viewMode === 'queue' && <QueuePanel communityTags={communityTags} onScheduled={onPostsChanged} />}
       </div>
     </>
   );

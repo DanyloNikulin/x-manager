@@ -2,14 +2,10 @@ import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { automationRules } from '@/lib/db/schema';
+import { asPositiveInt } from '@/lib/http-parse';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-function parseId(id: string): number | null {
-  const parsed = Number.parseInt(id, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
 
 function asObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -27,7 +23,7 @@ function serializeRule(rule: typeof automationRules.$inferSelect) {
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const ruleId = parseId(id);
+    const ruleId = asPositiveInt(id);
     if (!ruleId) {
       return NextResponse.json({ error: 'Invalid rule id.' }, { status: 400 });
     }
@@ -69,7 +65,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const ruleId = parseId(id);
+    const ruleId = asPositiveInt(id);
     if (!ruleId) {
       return NextResponse.json({ error: 'Invalid rule id.' }, { status: 400 });
     }

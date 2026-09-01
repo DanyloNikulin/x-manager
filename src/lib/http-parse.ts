@@ -36,3 +36,14 @@ export function isProvided(value: unknown): boolean {
 export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
+
+export function asPositiveInt(value: unknown): number | null {
+  const parsed = asInt(value);
+  return parsed !== null && parsed > 0 ? parsed : null;
+}
+
+export function asDate(value: unknown): Date | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}

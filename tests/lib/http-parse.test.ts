@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asBool, asInt, asIntOr, asString, clamp, isProvided } from '@/lib/http-parse';
+import { asBool, asDate, asInt, asIntOr, asPositiveInt, asString, clamp, isProvided } from '@/lib/http-parse';
 
 describe('http-parse', () => {
   it('trims non-empty strings and rejects other values', () => {
@@ -26,5 +26,13 @@ describe('http-parse', () => {
     expect(isProvided('')).toBe(false);
     expect(isProvided('x')).toBe(true);
     expect(clamp(40, 1, 10)).toBe(10);
+  });
+
+  it('parses positive ints and ISO dates', () => {
+    expect(asPositiveInt('12')).toBe(12);
+    expect(asPositiveInt('0')).toBeNull();
+    expect(asPositiveInt('-3')).toBeNull();
+    expect(asDate('2026-01-02T00:00:00.000Z')?.toISOString()).toBe('2026-01-02T00:00:00.000Z');
+    expect(asDate('nope')).toBeNull();
   });
 });

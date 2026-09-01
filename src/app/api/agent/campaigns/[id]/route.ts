@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { campaigns } from '@/lib/db/schema';
 import { normalizeAccountSlot } from '@/lib/account-slots';
-import { asString } from '@/lib/http-parse';
+import { asDate, asPositiveInt, asString } from '@/lib/http-parse';
 
 type CampaignUpdateBody = {
   name?: unknown;
@@ -18,12 +18,6 @@ type CampaignUpdateBody = {
 const ALLOWED_STATUSES = ['draft', 'active', 'paused', 'completed', 'archived'] as const;
 type CampaignStatus = (typeof ALLOWED_STATUSES)[number];
 
-function asDate(value: unknown): Date | null {
-  if (typeof value !== 'string' || !value.trim()) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
 function asCampaignStatus(value: unknown): CampaignStatus | null {
   const parsed = asString(value);
   if (!parsed) return null;
@@ -31,17 +25,12 @@ function asCampaignStatus(value: unknown): CampaignStatus | null {
   return parsed as CampaignStatus;
 }
 
-function parseId(raw: string): number | null {
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: rawId } = await params;
-  const id = parseId(rawId);
+  const id = asPositiveInt(rawId);
   if (!id) {
     return NextResponse.json({ error: 'Invalid campaign id.' }, { status: 400 });
   }
@@ -58,7 +47,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id: rawId } = await params;
-    const id = parseId(rawId);
+    const id = asPositiveInt(rawId);
     if (!id) {
       return NextResponse.json({ error: 'Invalid campaign id.' }, { status: 400 });
     }
@@ -122,7 +111,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: rawId } = await params;
-  const id = parseId(rawId);
+  const id = asPositiveInt(rawId);
   if (!id) {
     return NextResponse.json({ error: 'Invalid campaign id.' }, { status: 400 });
   }

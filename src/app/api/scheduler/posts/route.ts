@@ -17,22 +17,10 @@ import {
 import { withIdempotency } from '@/lib/idempotency';
 import { suggestOptimalTime } from '@/lib/optimal-time';
 import { createScheduledPost } from '@/lib/post-scheduler';
+import { parseStringArray } from '@/lib/json-array';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-function parseJsonArray(value: string | null): string[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) {
-      return parsed.filter((item): item is string => typeof item === 'string');
-    }
-  } catch {
-    // ignore
-  }
-  return [];
-}
 
 export async function GET(req: Request) {
   try {
@@ -290,18 +278,9 @@ export async function POST(req: Request) {
     }
 
     // Parse tags from form data (JSON array string)
-    const tagsRaw = (formData.get('tags') as string | null)?.trim() || null;
-    let tags: string[] = [];
-    if (tagsRaw) {
-      try {
-        const parsed = JSON.parse(tagsRaw);
-        if (Array.isArray(parsed)) {
-          tags = parsed.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map((t) => t.trim());
-        }
-      } catch {
-        // ignore invalid tags JSON
-      }
-    }
+    const tags = parseStringArray((formData.get('tags') as string | null)?.trim() || null)
+      .map((tag) => tag.trim())
+      .filter(Boolean);
 
     try {
       const result = await createScheduledPost({
@@ -341,7 +320,7 @@ export async function DELETE(req: Request) {
     const allPosts = await db.select().from(scheduledPosts);
 
     for (const post of allPosts) {
-      const urls = parseJsonArray(post.mediaUrls);
+      const urls = parseStringArray(post.mediaUrls);
       for (const rawUrl of urls) {
         const safeUrl = ensureSafeUploadUrl(rawUrl);
         if (!safeUrl) continue;

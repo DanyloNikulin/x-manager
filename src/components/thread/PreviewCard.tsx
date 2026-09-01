@@ -1,39 +1,10 @@
 'use client';
 
 import { useMemo } from 'react';
+import { parseTweetSegments } from '@/lib/twitter-text';
 
 export default function PreviewCard({ text, index }: { text: string; index: number }) {
-  const segments = useMemo(() => {
-    const tokens = text.split(/(\s+)/);
-    const result: { type: 'text' | 'url' | 'mention' | 'hashtag'; value: string }[] = [];
-
-    for (const token of tokens) {
-      if (/^\s+$/.test(token)) {
-        result.push({ type: 'text', value: token });
-      } else if (/^https?:\/\//i.test(token)) {
-        result.push({ type: 'url', value: token });
-      } else if (/^@\w+/.test(token)) {
-        const match = token.match(/^(@\w+)(.*)/s);
-        if (match) {
-          result.push({ type: 'mention', value: match[1] });
-          if (match[2]) result.push({ type: 'text', value: match[2] });
-        } else {
-          result.push({ type: 'text', value: token });
-        }
-      } else if (/^#\w+/.test(token)) {
-        const match = token.match(/^(#\w+)(.*)/s);
-        if (match) {
-          result.push({ type: 'hashtag', value: match[1] });
-          if (match[2]) result.push({ type: 'text', value: match[2] });
-        } else {
-          result.push({ type: 'text', value: token });
-        }
-      } else {
-        result.push({ type: 'text', value: token });
-      }
-    }
-    return result;
-  }, [text]);
+  const segments = useMemo(() => parseTweetSegments(text), [text]);
 
   return (
     <div className="flex gap-3">
