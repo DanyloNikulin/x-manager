@@ -7,6 +7,9 @@ id = "station.subscription-worker-1"
 assigned_agent = "subscription-agent"
 max_tasks_per_run = 2
 max_revision_rounds = 1
+# The daily planner runs once per local day, at or after this hour in this timezone.
+plan_hour = 9
+plan_timezone = "America/New_York"
 
 [writer]
 program = "claude"
@@ -38,12 +41,30 @@ args = [
 schema_path = "schemas/validator-output.schema.json"
 timeout_seconds = 600
 
+[planner]
+# Decides what to post today; may search the web but never sees X credentials and never drafts the post itself.
+program = "claude"
+args = [
+  "-p",
+  "--output-format", "json",
+  "--json-schema", "{schema_json}",
+  "--tools", "WebSearch,WebFetch",
+  "--allowedTools", "WebSearch,WebFetch",
+  "--safe-mode",
+  "--strict-mcp-config",
+  "--no-session-persistence"
+]
+schema_path = "schemas/planner-output.schema.json"
+timeout_seconds = 600
+
 [accounts.1]
 workspace = "../accounts/slot-1"
 language = "en"
 post_mode = "auto"
 inbound_reply_mode = "auto"
 outbound_reply_mode = "approval"
+# Original posts the planner may queue per day (0 = planner off). Capped at 5.
+posts_per_day = 1
 
 [accounts.2]
 workspace = "../accounts/slot-2"
@@ -51,3 +72,4 @@ language = "en"
 post_mode = "auto"
 inbound_reply_mode = "auto"
 outbound_reply_mode = "approval"
+posts_per_day = 0

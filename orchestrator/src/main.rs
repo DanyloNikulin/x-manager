@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use x_manager_orchestrator::{config::Config, manager::ManagerClient, worker};
+use x_manager_orchestrator::{config::Config, manager::ManagerClient, planner, worker};
 
 #[derive(Parser)]
 #[command(name = "x-manager-orchestrator")]
@@ -23,7 +23,10 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Doctor,
+    /// Run the daily planner (if due) and then one worker pass.
     RunOnce,
+    /// Run only the daily planner for every account with `posts_per_day > 0`.
+    Plan,
 }
 
 #[tokio::main]
@@ -42,8 +45,17 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Doctor => doctor(&config, &manager).await,
         Commands::RunOnce => {
+            let planned = planner::plan_day(&config, &manager).await?;
+            if planned > 0 {
+                info!(planned, "planner queued tasks");
+            }
             let processed = worker::run_once(&config, &manager).await?;
             info!(processed, "worker pass completed");
+            Ok(())
+        }
+        Commands::Plan => {
+            let planned = planner::plan_day(&config, &manager).await?;
+            info!(planned, "planner pass completed");
             Ok(())
         }
     }
@@ -52,6 +64,9 @@ async fn main() -> Result<()> {
 async fn doctor(config: &Config, manager: &ManagerClient) -> Result<()> {
     check_program(&config.writer.program)?;
     check_program(&config.validator.program)?;
+    if let Some(planner) = &config.planner {
+        check_program(&planner.program)?;
+    }
     for slot in ["1", "2"] {
         let account = config
             .accounts

@@ -13,6 +13,8 @@ pub struct Config {
     pub worker: WorkerConfig,
     pub writer: AgentCommand,
     pub validator: AgentCommand,
+    /// Optional daily planner agent; required once any account sets `posts_per_day`.
+    pub planner: Option<AgentCommand>,
     pub accounts: HashMap<String, AccountConfig>,
     #[serde(skip)]
     pub root: PathBuf,
@@ -34,6 +36,12 @@ pub struct WorkerConfig {
     pub max_tasks_per_run: usize,
     #[serde(default = "default_revision_rounds")]
     pub max_revision_rounds: usize,
+    /// Local hour (0-23, in `plan_timezone`) from which the daily planner may run.
+    #[serde(default = "default_plan_hour")]
+    pub plan_hour: u32,
+    /// IANA timezone that defines the planner's "day" and `plan_hour`.
+    #[serde(default = "default_plan_timezone")]
+    pub plan_timezone: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -59,6 +67,9 @@ pub struct AccountConfig {
     pub inbound_reply_mode: PublicationMode,
     #[serde(default = "default_outbound_reply_mode")]
     pub outbound_reply_mode: PublicationMode,
+    /// How many original posts the daily planner may queue per day; 0 disables planning.
+    #[serde(default)]
+    pub posts_per_day: u32,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -95,6 +106,12 @@ fn default_revision_rounds() -> usize {
 }
 fn default_timeout() -> u64 {
     600
+}
+fn default_plan_hour() -> u32 {
+    9
+}
+fn default_plan_timezone() -> String {
+    "UTC".into()
 }
 
 impl Config {
@@ -150,6 +167,20 @@ impl Config {
         }
         if self.worker.max_revision_rounds > 1 {
             bail!("worker.max_revision_rounds is capped at 1 to protect subscription usage");
+        }
+        if self.worker.plan_hour > 23 {
+            bail!("worker.plan_hour must be between 0 and 23");
+        }
+        if self.worker.plan_timezone.parse::<chrono_tz::Tz>().is_err() {
+            bail!("worker.plan_timezone must be a valid IANA timezone");
+        }
+        for (slot, account) in &self.accounts {
+            if account.posts_per_day > 5 {
+                bail!("accounts.{slot}.posts_per_day is capped at 5 to protect subscription usage");
+            }
+            if account.posts_per_day > 0 && self.planner.is_none() {
+                bail!("accounts.{slot}.posts_per_day requires a [planner] section");
+            }
         }
         for slot in ["1", "2"] {
             if !self.accounts.contains_key(slot) {

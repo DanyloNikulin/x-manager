@@ -60,6 +60,14 @@ For defense in depth, an auto reply is scheduled only when its target tweet alre
 
 Each pass claims at most two tasks by default. Each task gets at most one writer revision after validator feedback.
 
+## Daily planner
+
+Nothing has to create tasks by hand. When an account sets `posts_per_day` (1–5) and the config has a `[planner]` section, every `run-once` pass first runs the planner (`orchestrator/src/planner.rs`), then the worker picks up whatever it queued:
+
+- The planner runs once per account per local day, at or after `worker.plan_hour` in `worker.plan_timezone`. The run is recorded as a marker task (`research`, title `Autopilot <day>: plan`, assigned to `planner`) whose details hold the plan or the error, so an empty answer or a failure does not trigger a retry five minutes later — the next attempt is tomorrow. `x-manager-orchestrator plan` runs only this step.
+- Claude reads the account context (`profile`, `voice`, `strategy`, `memory`) plus the account's last 15 posts, may use `WebSearch`/`WebFetch` to find fresh material, and answers with up to `posts_per_day` tasks: topic, angle, pillar and `source_notes` (URLs it actually opened plus the facts the writer may use). Tasks without an http(s) source are rejected. The planner still never sees X credentials and never drafts the post text.
+- Accepted tasks land as `post` tasks (`assigned_agent = subscription-agent`) in the active campaign `Autopilot slot <n>`, created on first use. From there the usual writer → validator → publish path applies, including the publication mode and the slot policy window.
+
 Do not overlap `run-once` invocations with the same worker ID. This MVP does not yet renew or recover abandoned claim leases automatically; an interrupted task remains visible as `in_progress` for operator recovery. A durable lease/heartbeat is the next reliability step before running a larger worker pool.
 
 ## Remote server layout

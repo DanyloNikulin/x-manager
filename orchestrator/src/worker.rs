@@ -267,7 +267,7 @@ Provide 1-3 distinct variants. Do not invent sources or facts."#,
     ))
 }
 
-async fn load_account_context(workspace: &Path, account: &AccountConfig) -> Result<String> {
+pub(crate) async fn load_account_context(workspace: &Path, account: &AccountConfig) -> Result<String> {
     let mut sections = Vec::new();
     for filename in CONTEXT_FILES {
         let path = workspace.join(filename);
@@ -284,7 +284,7 @@ async fn load_account_context(workspace: &Path, account: &AccountConfig) -> Resu
     Ok(joined)
 }
 
-async fn read_bounded(path: &Path) -> Result<String> {
+pub(crate) async fn read_bounded(path: &Path) -> Result<String> {
     let metadata = fs::metadata(path)
         .await
         .with_context(|| format!("missing required file {}", path.display()))?;
@@ -347,6 +347,7 @@ mod tests {
             post_mode: PublicationMode::Auto,
             inbound_reply_mode: PublicationMode::Auto,
             outbound_reply_mode: PublicationMode::Approval,
+            posts_per_day: 0,
         };
         let mut task = WorkerTask {
             id: 1,
