@@ -5,6 +5,7 @@ import { db } from '@/lib/db';
 import { engagementInbox } from '@/lib/db/schema';
 import { parseAccountSlot, recordEngagementAction, requireConnectedAccount } from '@/lib/engagement-ops';
 import { withIdempotency } from '@/lib/idempotency';
+import { asInt, asString } from '@/lib/http-parse';
 
 type DmBody = {
   account_slot?: unknown;
@@ -12,19 +13,6 @@ type DmBody = {
   recipient_user_id?: unknown;
   text?: unknown;
 };
-
-function asString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-}
-
-function asInt(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.floor(value);
-  if (typeof value === 'string') {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return null;
-}
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

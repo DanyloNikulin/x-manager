@@ -186,40 +186,14 @@ async function executeResearchTask(
     };
   }
 
-  const baseUrl = process.env.NEXTAUTH_URL || process.env.XM_BASE_URL || 'http://127.0.0.1:3999';
-  const params = new URLSearchParams({
-    keywords: keywords.join(','),
-    lang: (details.language as string) || 'en',
-    limit: String(details.limit || 10),
-  });
-
   try {
-    const response = await fetch(`${baseUrl}/api/discovery/topics?${params}`, {
-      headers: { 'Content-Type': 'application/json' },
+    const { searchDiscoveryTopics } = await import('./discovery-search');
+    const data = await searchDiscoveryTopics({
+      keywords,
+      language: typeof details.language === 'string' ? details.language : 'en',
+      limit: Number(details.limit || 10),
     });
-
-    if (!response.ok) {
-      const body = await response.text();
-      const errorMessage = `Discovery API returned ${response.status}: ${body.slice(0, 200)}`;
-      return {
-        output: {
-          summary: `Research failed: ${errorMessage}`,
-          keywords,
-          error: errorMessage,
-          collectedAt: new Date().toISOString(),
-        },
-      };
-    }
-
-    const data = await response.json();
-    const topics: Array<{
-      id: string;
-      text: string;
-      url: string;
-      author?: { username: string | null };
-      relevanceScore: number;
-      metrics: { likes: number; replies: number; reposts: number; quotes: number };
-    }> = data.topics ?? [];
+    const topics = data.topics ?? [];
 
     return {
       output: {

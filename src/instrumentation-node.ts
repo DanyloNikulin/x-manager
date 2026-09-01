@@ -39,14 +39,18 @@ export function registerNodeInstrumentation(): void {
   if (process.env.DISABLE_IN_APP_SCHEDULER === 'true') {
     log.info('In-app post scheduler disabled via DISABLE_IN_APP_SCHEDULER.');
   } else {
+    const intervalSeconds = Math.max(10, Number(process.env.SCHEDULER_INTERVAL_SECONDS || 60));
     void startWithRetry('Post scheduler', async () => {
       const { startSchedulerLoop } = await import('./lib/scheduler-service');
-      const intervalSeconds = Math.max(10, Number(process.env.SCHEDULER_INTERVAL_SECONDS || 60));
       startSchedulerLoop({
         key: 'in-app',
         intervalSeconds,
         runOnStart: true,
       });
+    });
+    void startWithRetry('Background processors', async () => {
+      const { startBackgroundProcessorLoop } = await import('./lib/background-processors');
+      startBackgroundProcessorLoop(intervalSeconds);
     });
   }
 
@@ -69,29 +73,8 @@ export function registerNodeInstrumentation(): void {
   });
 
   void startWithRetry('Follower tracker', async () => {
-    const { takeFollowerSnapshots, isFollowerTrackerStarted, markFollowerTrackerStarted } = await import('./lib/follower-tracker');
-    if (isFollowerTrackerStarted()) {
-      log.info('Follower tracker already running, skipping.');
-      return;
-    }
-    markFollowerTrackerStarted();
-    // Snapshot once daily (86400s), check every hour
-    const intervalMs = 3600 * 1000;
-    setInterval(() => {
-      try {
-        const created = takeFollowerSnapshots();
-        if (created > 0) {
-          log.info(`Recorded ${created} follower snapshot(s).`);
-        }
-      } catch (error) {
-        log.error('Follower tracker cycle error', error instanceof Error ? error : undefined);
-      }
-    }, intervalMs);
-    // Take initial snapshot on startup
-    try {
-      takeFollowerSnapshots();
-    } catch { /* best-effort */ }
-    log.info('Follower tracker started (1h interval).');
+    const { startFollowerTrackerLoop } = await import('./lib/follower-tracker');
+    startFollowerTrackerLoop(3600);
   });
 
   // S5 fix: Recover pending webhook deliveries that were lost on previous restart

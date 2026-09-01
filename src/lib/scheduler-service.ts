@@ -10,9 +10,6 @@ import { decryptAccountTokens } from './x-account-crypto';
 import { markSchedulerStarted, markCycleSuccess, markCycleError } from './scheduler-health';
 import { emitEvent } from './events';
 import { deliverEventToWebhooks } from './webhook-delivery';
-import { runScheduledAutomationRules } from './automation-executor';
-import { runFeedProcessor } from './feed-processor';
-import { runKeywordMonitor } from './keyword-monitor';
 import { logger, type Logger } from './logger';
 import { createOwnerId, withLease } from './scheduler-lock';
 import { startIntervalLoop } from './interval-loop';
@@ -146,17 +143,9 @@ export async function runSchedulerCycle(logger: SchedulerLogger = defaultLogger)
         return { skipped: true, processed: 0, posted: 0, failed: 0 };
       },
     },
-    async ({ extend }) => {
+    async ({ extend }): Promise<SchedulerCycleResult> => {
       try {
     const config = await getResolvedXConfig();
-
-    try {
-      await runScheduledAutomationRules(logger);
-      await runFeedProcessor(logger);
-      await runKeywordMonitor(logger);
-    } catch (processorError) {
-      logger.error('Background processor failure:', processorError);
-    }
 
     const connectedAccounts = await getConnectedAccounts();
     const accountBySlot = new Map(

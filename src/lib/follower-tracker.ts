@@ -1,5 +1,7 @@
 import { sqlite } from '@/lib/db';
 import { ACCOUNT_SLOTS, type AccountSlot } from '@/lib/account-slots';
+import { startIntervalLoop } from './interval-loop';
+import { logger } from './logger';
 
 interface SnapshotRow {
   id: number;
@@ -130,14 +132,22 @@ export function getFollowerGrowth(
   };
 }
 
-declare global {
-  var __xManagerFollowerTrackerStarted: boolean | undefined;
-}
-
-export function isFollowerTrackerStarted(): boolean {
-  return globalThis.__xManagerFollowerTrackerStarted === true;
-}
-
-export function markFollowerTrackerStarted(): void {
-  globalThis.__xManagerFollowerTrackerStarted = true;
+export function startFollowerTrackerLoop(intervalSeconds = 3600): () => void {
+  const log = logger('follower-tracker');
+  return startIntervalLoop({
+    key: 'follower-tracker',
+    intervalSeconds: Math.max(60, intervalSeconds),
+    runOnStart: true,
+    unref: true,
+    run: () => {
+      const created = takeFollowerSnapshots();
+      if (created > 0) {
+        log.info(`Recorded ${created} follower snapshot(s).`);
+      }
+    },
+    onError: (error) => {
+      log.error('Follower tracker cycle error', error instanceof Error ? error : undefined);
+    },
+    logger: log,
+  });
 }

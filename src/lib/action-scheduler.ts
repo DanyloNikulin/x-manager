@@ -83,7 +83,7 @@ export async function runActionSchedulerCycle(
         return { skipped: true, processed: 0, completed: 0, failed: 0 };
       },
     },
-    async () => {
+    async (): Promise<ActionSchedulerCycleResult> => {
     const config = await getResolvedXConfig();
 
     // Query all due actions.

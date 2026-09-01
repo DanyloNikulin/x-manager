@@ -69,7 +69,7 @@ export async function withLease<T>(
     lockKey: string;
     ownerId: string;
     leaseSeconds: number;
-    onSkip: () => T | Promise<T>;
+    onSkip: () => NoInfer<T> | Promise<NoInfer<T>>;
     db?: SqliteDatabase;
   },
   fn: (ctx: { extend: () => boolean }) => Promise<T>,

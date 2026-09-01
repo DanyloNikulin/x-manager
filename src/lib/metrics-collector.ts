@@ -132,7 +132,7 @@ export async function runMetricsCollectionCycle(logger: MetricsLogger = defaultL
       leaseSeconds,
       onSkip: () => ({ collected: 0 }),
     },
-    async () => {
+    async (): Promise<{ collected: number }> => {
       try {
     const config = await getResolvedXConfig();
     const accounts = await getConnectedAccounts();
