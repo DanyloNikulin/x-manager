@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { engagementInbox } from '@/lib/db/schema';
 import { recordEngagementAction } from '@/lib/engagement-ops';
+import { asString } from '@/lib/http-parse';
 
 const ALLOWED_STATUSES = ['new', 'reviewed', 'replied', 'dismissed'] as const;
 type InboxStatus = (typeof ALLOWED_STATUSES)[number];
@@ -11,10 +12,6 @@ type StatusBody = {
   status?: unknown;
   note?: unknown;
 };
-
-function asString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-}
 
 function asInboxStatus(value: unknown): InboxStatus | null {
   const parsed = asString(value);

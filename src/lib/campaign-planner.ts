@@ -1,3 +1,5 @@
+import { DEFAULT_CAMPAIGN_PLAN_STEPS } from './campaign-plan-fixture';
+
 export type CampaignPlanInput = {
   objective: string;
   instructions?: string | null;
@@ -22,58 +24,23 @@ function interpolateDueAt(startAt: Date | null, endAt: Date | null, progress: nu
   return new Date(start + Math.floor((end - start) * progress));
 }
 
+function fillDetails(template: string, objective: string, instructionLine: string): string {
+  return template.replaceAll('{objective}', objective).replaceAll('{instructionLine}', instructionLine);
+}
+
 export function buildDefaultCampaignPlan(input: CampaignPlanInput): DraftTask[] {
   const objective = input.objective.trim();
-  const instructionLine = input.instructions?.trim() ? `Constraints: ${input.instructions?.trim()}` : 'No extra constraints provided.';
+  const trimmedInstructions = input.instructions?.trim();
+  const instructionLine = trimmedInstructions
+    ? `Constraints: ${trimmedInstructions}`
+    : 'No extra constraints provided.';
 
-  return [
-    {
-      taskType: 'research',
-      title: 'Collect target topics and audience signals',
-      details: `Analyze mentions, discovery trends, and historical engagement for objective: ${objective}. ${instructionLine}`,
-      dueAt: interpolateDueAt(input.startAt || null, input.endAt || null, 0.1),
-      priority: 1,
-      status: 'pending',
-    },
-    {
-      taskType: 'post',
-      title: 'Draft primary content sequence',
-      details: `Create 5-10 core posts/threads aligned with objective: ${objective}. Include publication windows and account slot selection.`,
-      dueAt: interpolateDueAt(input.startAt || null, input.endAt || null, 0.25),
-      priority: 1,
-      status: 'pending',
-    },
-    {
-      taskType: 'approval',
-      title: 'Approval checkpoint: scheduled content',
-      details: 'Require approval before publishing campaign’s first content batch.',
-      dueAt: interpolateDueAt(input.startAt || null, input.endAt || null, 0.35),
-      priority: 1,
-      status: 'waiting_approval',
-    },
-    {
-      taskType: 'reply',
-      title: 'Execute daily reply workflow',
-      details: 'Sync inbox and respond to high-relevance mentions with approved reply policy.',
-      dueAt: interpolateDueAt(input.startAt || null, input.endAt || null, 0.6),
-      priority: 2,
-      status: 'pending',
-    },
-    {
-      taskType: 'dm',
-      title: 'Run targeted DM outreach',
-      details: 'Send personalized DMs to qualified accounts with clear CTA and track outcomes.',
-      dueAt: interpolateDueAt(input.startAt || null, input.endAt || null, 0.75),
-      priority: 2,
-      status: 'pending',
-    },
-    {
-      taskType: 'approval',
-      title: 'Approval checkpoint: campaign closeout',
-      details: 'Review campaign outcomes, follow-up queue, and handoff recommendations.',
-      dueAt: interpolateDueAt(input.startAt || null, input.endAt || null, 0.95),
-      priority: 2,
-      status: 'waiting_approval',
-    },
-  ];
+  return DEFAULT_CAMPAIGN_PLAN_STEPS.map((step) => ({
+    taskType: step.taskType,
+    title: step.title,
+    details: fillDetails(step.details, objective, instructionLine),
+    dueAt: interpolateDueAt(input.startAt || null, input.endAt || null, step.progress),
+    priority: step.priority,
+    status: step.status,
+  }));
 }

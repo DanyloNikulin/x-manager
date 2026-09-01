@@ -2,6 +2,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { campaignTasks, campaigns } from '@/lib/db/schema';
+import { asInt, asString, clamp } from '@/lib/http-parse';
 
 type TaskBody = {
   task_type?: unknown;
@@ -18,10 +19,6 @@ const ALLOWED_STATUSES = ['pending', 'in_progress', 'waiting_approval', 'done', 
 type TaskType = (typeof ALLOWED_TASK_TYPES)[number];
 type TaskStatus = (typeof ALLOWED_STATUSES)[number];
 
-function asString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-}
-
 function asDate(value: unknown): Date | null {
   if (typeof value !== 'string' || !value.trim()) return null;
   const parsed = new Date(value);
@@ -29,9 +26,9 @@ function asDate(value: unknown): Date | null {
 }
 
 function asPriority(value: unknown): number {
-  const parsed = typeof value === 'string' ? Number.parseInt(value, 10) : Number(value);
-  if (!Number.isFinite(parsed)) return 2;
-  return Math.max(1, Math.min(3, Math.floor(parsed)));
+  const parsed = asInt(value);
+  if (parsed === null) return 2;
+  return clamp(parsed, 1, 3);
 }
 
 function asTaskType(value: unknown): TaskType | null {
@@ -49,8 +46,8 @@ function asTaskStatus(value: unknown): TaskStatus | null {
 }
 
 function parseCampaignId(raw: string): number | null {
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  const parsed = asInt(raw);
+  return parsed !== null && parsed > 0 ? parsed : null;
 }
 
 export const runtime = 'nodejs';

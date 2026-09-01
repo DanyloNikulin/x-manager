@@ -3,24 +3,15 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { campaignTasks, campaigns } from '@/lib/db/schema';
 import { buildDefaultCampaignPlan } from '@/lib/campaign-planner';
+import { asBool, asInt } from '@/lib/http-parse';
 
 type PlanBody = {
   save?: unknown;
 };
 
-function asBool(value: unknown, fallback: boolean): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) return true;
-    if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) return false;
-  }
-  return fallback;
-}
-
 function parseCampaignId(raw: string): number | null {
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  const parsed = asInt(raw);
+  return parsed !== null && parsed > 0 ? parsed : null;
 }
 
 export const runtime = 'nodejs';

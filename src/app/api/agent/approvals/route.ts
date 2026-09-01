@@ -2,6 +2,7 @@ import { and, desc, eq, type SQL } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { campaignApprovals } from '@/lib/db/schema';
+import { asInt, asString } from '@/lib/http-parse';
 
 type ApprovalBody = {
   id?: unknown;
@@ -14,19 +15,6 @@ type ApprovalBody = {
 
 const ALLOWED_STATUSES = ['pending', 'approved', 'rejected'] as const;
 type ApprovalStatus = (typeof ALLOWED_STATUSES)[number];
-
-function asString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-}
-
-function asInt(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.floor(value);
-  if (typeof value === 'string') {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return null;
-}
 
 function asApprovalStatus(value: unknown): ApprovalStatus | null {
   const parsed = asString(value);

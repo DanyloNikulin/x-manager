@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { asIntOr, asString, clamp } from '@/lib/http-parse';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -59,29 +60,8 @@ function pruneRateLimitMap(): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Input validation helpers
-// ---------------------------------------------------------------------------
-
 const VALID_MODES: Mode[] = ['generate', 'rewrite', 'expand', 'hook'];
 const VALID_TONES: Tone[] = ['professional', 'casual', 'provocative', 'educational', 'witty'];
-
-function asString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function asInt(value: unknown, fallback: number, min: number, max: number): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.max(min, Math.min(max, Math.floor(value)));
-  }
-  if (typeof value === 'string') {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed)) return Math.max(min, Math.min(max, parsed));
-  }
-  return fallback;
-}
 
 // ---------------------------------------------------------------------------
 // Template-based generation (fallback when AI_API_URL is not configured)
@@ -348,7 +328,7 @@ export async function POST(req: Request) {
   const tone: Tone = rawTone && VALID_TONES.includes(rawTone as Tone) ? (rawTone as Tone) : 'professional';
 
   // --- Validate count (optional, default: 3) ---
-  const count = asInt(body.count, 3, 1, 6);
+  const count = clamp(asIntOr(body.count, 3), 1, 6);
 
   // --- Validate existingText (required for rewrite/expand, optional for others) ---
   const existingText = asString(body.existingText);

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { scheduledPosts } from '@/lib/db/schema';
 import { isAccountSlot } from '@/lib/account-slots';
+import { asBool, asInt, asString } from '@/lib/http-parse';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,27 +15,6 @@ type RetryRequest = {
   include_cancelled?: unknown;
   scheduled_time?: unknown;
 };
-
-function asInt(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.floor(value);
-  }
-  if (typeof value === 'string') {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return null;
-}
-
-function asBool(value: unknown, fallback: boolean): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
-    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
-  }
-  return fallback;
-}
 
 export async function POST(req: Request) {
   try {
@@ -57,7 +37,7 @@ export async function POST(req: Request) {
     const targetIds = [...new Set([...(idFromBody && idFromBody > 0 ? [idFromBody] : []), ...idsFromBody])];
 
     // Resolve thread_id: find all failed/cancelled posts in that thread
-    const threadId = typeof body.thread_id === 'string' ? body.thread_id.trim() : null;
+    const threadId = asString(body.thread_id);
     if (threadId) {
       const threadPosts = await db
         .select({ id: scheduledPosts.id })
@@ -74,9 +54,8 @@ export async function POST(req: Request) {
     }
 
     // Parse optional scheduled_time for rescheduling
-    const scheduledTime = typeof body.scheduled_time === 'string'
-      ? new Date(body.scheduled_time)
-      : null;
+    const scheduledTimeRaw = asString(body.scheduled_time);
+    const scheduledTime = scheduledTimeRaw ? new Date(scheduledTimeRaw) : null;
     if (scheduledTime && Number.isNaN(scheduledTime.getTime())) {
       return NextResponse.json({ error: 'Invalid scheduled_time. Provide a valid ISO 8601 string.' }, { status: 400 });
     }
