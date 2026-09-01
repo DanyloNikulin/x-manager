@@ -55,9 +55,9 @@ export async function GET(req: Request) {
       },
       {
         id: 'cli_auth_login',
-        method: 'POST/DELETE',
+        method: 'POST/PATCH/DELETE',
         path: '/api/system/cli-auth/:provider',
-        description: 'Start or cancel a fixed, host-local subscription OAuth/device login flow.',
+        description: 'Start, submit a pasted login code, or cancel a host-local subscription OAuth/device login flow.',
       },
       {
         id: 'list_posts',

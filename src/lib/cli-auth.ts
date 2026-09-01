@@ -23,10 +23,21 @@ export type CliLoginSessionView = {
   output: string;
   authUrl: string | null;
   deviceCode: string | null;
+  acceptsInput: boolean;
   startedAt: string;
   finishedAt: string | null;
   exitCode: number | null;
 };
+
+export class CliAuthError extends Error {
+  readonly status: 400 | 409;
+
+  constructor(message: string, status: 400 | 409) {
+    super(message);
+    this.name = 'CliAuthError';
+    this.status = status;
+  }
+}
 
 type CliLoginSession = CliLoginSessionView & {
   child: ChildProcessWithoutNullStreams;
@@ -60,7 +71,7 @@ const providerLabels: Record<CliAuthProvider, string> = {
 };
 
 const allowedAuthHosts: Record<CliAuthProvider, string[]> = {
-  claude: ['claude.ai', 'anthropic.com'],
+  claude: ['claude.ai', 'claude.com', 'anthropic.com'],
   codex: ['openai.com', 'chatgpt.com'],
   kimi: ['kimi.ai', 'kimi.com'],
 };
@@ -156,6 +167,16 @@ function resolveWindowsCommand(name: string, args: string[]): CommandSpec | null
   return null;
 }
 
+export function loginKeepsStdinOpen(provider: CliAuthProvider): boolean {
+  return provider === 'claude';
+}
+
+function stdinAcceptsInput(session: CliLoginSession): boolean {
+  if (session.state !== 'running') return false;
+  const stdin = session.child.stdin;
+  return Boolean(stdin && !stdin.destroyed && !stdin.writableEnded);
+}
+
 export function cliAuthArgsFor(
   provider: CliAuthProvider,
   operation: 'status' | 'login',
@@ -206,7 +227,7 @@ function appendOutput(session: CliLoginSession, chunk: Buffer | string): void {
   extractLoginHints(session);
 }
 
-function isAllowedAuthUrl(provider: CliAuthProvider, candidate: string): boolean {
+export function isAllowedAuthUrl(provider: CliAuthProvider, candidate: string): boolean {
   try {
     const url = new URL(candidate.replace(/[),.;]+$/, ''));
     return url.protocol === 'https:' && allowedAuthHosts[provider].some(
@@ -238,6 +259,7 @@ function sessionView(session: CliLoginSession): CliLoginSessionView {
     output: session.output,
     authUrl: session.authUrl,
     deviceCode: session.deviceCode,
+    acceptsInput: stdinAcceptsInput(session),
     startedAt: session.startedAt,
     finishedAt: session.finishedAt,
     exitCode: session.exitCode,
@@ -379,15 +401,20 @@ export function startCliLogin(provider: CliAuthProvider): CliLoginSessionView {
     output: '',
     authUrl: null,
     deviceCode: null,
+    acceptsInput: false,
     startedAt: now,
     finishedAt: null,
     exitCode: null,
     child,
     timeout: null,
   };
-  // These commands use browser/device authorization; close stdin so a hidden
-  // process cannot wait forever for an interactive terminal prompt.
-  child.stdin.end();
+  // Codex/Kimi device flows never read stdin. Claude prints a browser URL,
+  // then waits for the one-time code — keep stdin open so the dashboard can
+  // send that code. Close stdin for everyone else so a hidden process cannot
+  // hang on an interactive prompt.
+  if (!loginKeepsStdinOpen(provider)) {
+    child.stdin.end();
+  }
   session.timeout = setTimeout(() => {
     if (session.state !== 'running') return;
     session.state = 'failed';
@@ -417,6 +444,24 @@ export function startCliLogin(provider: CliAuthProvider): CliLoginSessionView {
     store.statusCache = null;
   });
 
+  return sessionView(session);
+}
+
+export function submitCliLoginInput(provider: CliAuthProvider, code: string): CliLoginSessionView {
+  const trimmed = code.trim();
+  if (!trimmed) {
+    throw new CliAuthError('Login code is required.', 400);
+  }
+  const session = store.sessions.get(provider);
+  if (!session || session.state !== 'running') {
+    throw new CliAuthError('No running login session to receive a code.', 409);
+  }
+  const stdin = session.child.stdin;
+  if (!stdin || stdin.destroyed || stdin.writableEnded) {
+    throw new CliAuthError('This login session cannot accept a pasted code.', 409);
+  }
+  stdin.write(`${trimmed}\n`);
+  appendOutput(session, '\n[dashboard] submitted the browser login code\n');
   return sessionView(session);
 }
 

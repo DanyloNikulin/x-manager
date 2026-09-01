@@ -12,38 +12,19 @@ import {
   Terminal,
   X,
 } from 'lucide-react';
-
-type Provider = 'claude' | 'codex' | 'kimi';
-type LoginState = 'running' | 'succeeded' | 'failed' | 'cancelled';
-
-type ProviderStatus = {
-  provider: Provider;
-  label: string;
-  available: boolean;
-  authenticated: boolean;
-  authKind: string | null;
-  detail: string;
-};
-
-type LoginSession = {
-  id: string;
-  provider: Provider;
-  state: LoginState;
-  output: string;
-  authUrl: string | null;
-  deviceCode: string | null;
-  startedAt: string;
-  finishedAt: string | null;
-  exitCode: number | null;
-};
+import type {
+  CliAuthProvider,
+  CliLoginSessionView,
+  CliProviderStatus,
+} from '@/lib/cli-auth';
 
 type AuthPayload = {
-  providers: ProviderStatus[];
-  sessions: Partial<Record<Provider, LoginSession>>;
+  providers: CliProviderStatus[];
+  sessions: Partial<Record<CliAuthProvider, CliLoginSessionView>>;
   error?: string;
 };
 
-const providerChrome: Record<Provider, { marker: string; glow: string }> = {
+const providerChrome: Record<CliAuthProvider, { marker: string; glow: string }> = {
   claude: { marker: 'bg-orange-400', glow: 'from-orange-500/15' },
   codex: { marker: 'bg-emerald-400', glow: 'from-emerald-500/15' },
   kimi: { marker: 'bg-cyan-400', glow: 'from-cyan-500/15' },
@@ -53,7 +34,8 @@ export default function CliAuthPanel() {
   const [payload, setPayload] = useState<AuthPayload>({ providers: [], sessions: {} });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeAction, setActiveAction] = useState<Provider | null>(null);
+  const [activeAction, setActiveAction] = useState<CliAuthProvider | null>(null);
+  const [codes, setCodes] = useState<Partial<Record<CliAuthProvider, string>>>({});
 
   const load = useCallback(async (force = false) => {
     try {
@@ -83,7 +65,7 @@ export default function CliAuthPanel() {
     return () => window.clearInterval(timer);
   }, [hasRunningLogin, load]);
 
-  const startLogin = async (provider: Provider) => {
+  const startLogin = async (provider: CliAuthProvider) => {
     setActiveAction(provider);
     setError('');
     try {
@@ -98,7 +80,7 @@ export default function CliAuthPanel() {
     }
   };
 
-  const cancelLogin = async (provider: Provider) => {
+  const cancelLogin = async (provider: CliAuthProvider) => {
     setActiveAction(provider);
     try {
       await fetch(`/api/system/cli-auth/${provider}`, { method: 'DELETE' });
@@ -113,6 +95,28 @@ export default function CliAuthPanel() {
       await navigator.clipboard.writeText(code);
     } catch {
       setError('Clipboard access was denied. Select and copy the code manually.');
+    }
+  };
+
+  const submitBrowserCode = async (provider: CliAuthProvider) => {
+    const code = (codes[provider] || '').trim();
+    if (!code) return;
+    setActiveAction(provider);
+    setError('');
+    try {
+      const response = await fetch(`/api/system/cli-auth/${provider}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || 'Could not submit the login code.');
+      setCodes((current) => ({ ...current, [provider]: '' }));
+      await load(false);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Could not submit the login code.');
+    } finally {
+      setActiveAction(null);
     }
   };
 
@@ -210,6 +214,35 @@ export default function CliAuthPanel() {
                         <span>{session.deviceCode}</span>
                         <Copy className="h-3.5 w-3.5 text-slate-400" />
                       </button>
+                    )}
+                    {session.acceptsInput && (
+                      <form
+                        className="space-y-2"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void submitBrowserCode(provider.provider);
+                        }}
+                      >
+                        <p className="text-[11px] leading-relaxed text-slate-300">
+                          Open the sign-in page, finish in the browser, then paste the code <strong className="text-white">here</strong>. Do not paste it into the CLI.
+                        </p>
+                        <div className="flex gap-2">
+                          <input
+                            value={codes[provider.provider] || ''}
+                            onChange={(event) => setCodes((current) => ({ ...current, [provider.provider]: event.target.value }))}
+                            placeholder="Paste browser code"
+                            autoComplete="off"
+                            className="min-w-0 flex-1 rounded-md border border-slate-600 bg-slate-900 px-2 py-2 font-mono text-xs text-white"
+                          />
+                          <button
+                            type="submit"
+                            disabled={!codes[provider.provider]?.trim() || activeAction === provider.provider}
+                            className="rounded-md bg-cyan-300 px-3 py-2 text-xs font-semibold text-slate-950 disabled:opacity-40"
+                          >
+                            Send
+                          </button>
+                        </div>
+                      </form>
                     )}
                     {session.output && (
                       <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-md bg-black/30 p-2 font-mono text-[10px] leading-relaxed text-slate-400">{session.output}</pre>
