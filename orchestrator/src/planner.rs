@@ -270,6 +270,21 @@ mod tests {
     }
 
     #[test]
+    fn cli_envelope_never_parses_as_an_empty_plan() {
+        // Claude Code's `--output-format json` envelope carries the plan inside `result`
+        // (fenced, followed by a sources trailer). It must unwrap, not read as "no tasks".
+        let envelope = r#"{"type":"result","subtype":"success","is_error":false,"structured_output":null,"result":"```json\n{\"tasks\":[{\"topic\":\"t\",\"angle\":\"a\",\"pillar\":\"p\",\"source_notes\":[{\"url\":\"https://e.x/1\",\"note\":\"n\"}]}],\"notes\":\"searched two pillars\"}\n```\n\nSources:\n- [x](https://e.x/1)","session_id":"s"}"#;
+        let parsed: PlannerOutput =
+            crate::agents::parse_json_payload(envelope).expect("envelope should unwrap the fenced plan");
+        assert_eq!(parsed.tasks.len(), 1);
+        assert_eq!(parsed.tasks[0].topic, "t");
+        assert_eq!(parsed.notes, "searched two pillars");
+
+        let bare_envelope = r#"{"type":"result","subtype":"success","is_error":false,"result":"nothing"}"#;
+        assert!(crate::agents::parse_json_payload::<PlannerOutput>(bare_envelope).is_err());
+    }
+
+    #[test]
     fn rejects_unsourced_or_empty_tasks() {
         assert!(validate_planned(&planned("topic", "https://example.com/x")).is_ok());
         assert!(validate_planned(&planned("topic", "example.com")).is_err());

@@ -25,7 +25,8 @@ pub struct TaskList {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlannerOutput {
-    #[serde(default)]
+    /// Deliberately required: with a default, the CLI's own `{"type":"result",...}`
+    /// envelope would deserialize as an empty plan before the payload is unwrapped.
     pub tasks: Vec<PlannedTask>,
     /// What the planner searched and rejected; recorded in the daily marker task.
     #[serde(default)]
