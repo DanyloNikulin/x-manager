@@ -2,10 +2,10 @@ import { NextResponse } from 'next/server';
 import { normalizeAccountSlot } from '@/lib/account-slots';
 import { getResolvedXConfig } from '@/lib/x-config';
 import {
-  buildThreadDraft,
   downloadRemoteImages,
   fetchAndExtractArticle,
 } from '@/lib/create-thread';
+import { generateClaudeThreadDraft } from '@/lib/claude-content';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -97,13 +97,13 @@ export async function POST(req: Request) {
       ? await downloadRemoteImages(article.imageUrls, Math.max(0, maxTweets - 1))
       : [];
 
-    const draft = buildThreadDraft(article, downloadedMediaUrls, maxTweets);
+    const draft = await generateClaudeThreadDraft(article, downloadedMediaUrls, maxTweets);
 
     const baseResponse = {
       ok: true,
       article: {
         url: article.url,
-        canonical_url: article.canonicalUrl,
+        canonical_url: draft.source_url,
         title: article.title,
         description: article.description,
         quote_candidates: article.quoteCandidates,
@@ -115,6 +115,11 @@ export async function POST(req: Request) {
         account_slot: accountSlot,
         source_url: draft.source_url,
         tweets: draft.tweets,
+      },
+      generation: {
+        provider: 'claude',
+        requested_posts: maxTweets,
+        returned_posts: draft.tweets.length,
       },
     };
 

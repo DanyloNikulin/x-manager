@@ -27,6 +27,8 @@ export interface DraftThread {
   tweets: DraftTweet[];
 }
 
+type UnknownRecord = Record<string, unknown>;
+
 const ENTITY_MAP: Record<string, string> = {
   amp: '&',
   lt: '<',
@@ -34,6 +36,16 @@ const ENTITY_MAP: Record<string, string> = {
   quot: '"',
   apos: "'",
   nbsp: ' ',
+  Aacute: 'Á', aacute: 'á',
+  Eacute: 'É', eacute: 'é',
+  Iacute: 'Í', iacute: 'í',
+  Oacute: 'Ó', oacute: 'ó',
+  Uacute: 'Ú', uacute: 'ú',
+  Yacute: 'Ý', yacute: 'ý',
+  ndash: '–', mdash: '—',
+  lsquo: '‘', rsquo: '’',
+  ldquo: '“', rdquo: '”',
+  hellip: '…',
 };
 
 function decodeHtmlEntities(input: string): string {
@@ -64,6 +76,104 @@ function stripTags(input: string): string {
 
 function cleanHtmlText(input: string): string {
   return normalizeWhitespace(decodeHtmlEntities(stripTags(input)));
+}
+
+function asRecord(value: unknown): UnknownRecord | null {
+  return typeof value === 'object' && value !== null ? value as UnknownRecord : null;
+}
+
+export function parseCommissionPressCornerPayload(
+  payload: unknown,
+  articleUrl: string,
+): ExtractedArticle | null {
+  const document = asRecord(payload);
+  const resource = asRecord(document?.docuLanguageResource);
+  if (!document || !resource) return null;
+
+  const htmlContent = typeof resource.htmlContent === 'string' ? resource.htmlContent : '';
+  const paragraphs = extractParagraphText(htmlContent);
+  if (paragraphs.length === 0) return null;
+
+  const title = normalizeWhitespace(decodeHtmlEntities(
+    typeof resource.title === 'string'
+      ? resource.title
+      : typeof resource.subtitle === 'string'
+        ? resource.subtitle
+        : 'Untitled article',
+  ));
+  const description = normalizeWhitespace(decodeHtmlEntities(
+    typeof resource.subtitle === 'string' ? resource.subtitle : paragraphs[0],
+  ));
+  const quoteCandidates = extractQuoteCandidates(htmlContent, paragraphs, 12);
+  const quoteResources = Array.isArray(resource.dolaQuoteResources) ? resource.dolaQuoteResources : [];
+  for (const quote of quoteResources) {
+    const value = asRecord(quote)?.extract;
+    if (typeof value !== 'string') continue;
+    const cleaned = cleanHtmlText(value);
+    if (cleaned.length < 40 || quoteCandidates.includes(cleaned)) continue;
+    quoteCandidates.unshift(cleaned);
+  }
+
+  const imageUrls: string[] = [];
+  const globalImage = typeof document.globalImg === 'string' ? toAbsoluteUrl(articleUrl, document.globalImg) : null;
+  if (globalImage) imageUrls.push(globalImage);
+  const mediaResources = Array.isArray(resource.dolaAvResources) ? resource.dolaAvResources : [];
+  for (const media of mediaResources) {
+    const urlValue = asRecord(media)?.url;
+    const resolved = typeof urlValue === 'string' ? toAbsoluteUrl(articleUrl, urlValue) : null;
+    if (resolved && !imageUrls.includes(resolved)) imageUrls.push(resolved);
+    if (imageUrls.length >= 12) break;
+  }
+
+  return {
+    url: articleUrl,
+    canonicalUrl: articleUrl,
+    title,
+    description,
+    imageUrls,
+    quoteCandidates: quoteCandidates.slice(0, 12),
+    excerpt: truncate(paragraphs.join(' '), 12_000),
+  };
+}
+
+async function fetchCommissionPressCornerArticle(articleUrl: string): Promise<ExtractedArticle | null> {
+  let parsed: URL;
+  try {
+    parsed = new URL(articleUrl);
+  } catch {
+    return null;
+  }
+  if (parsed.hostname.toLowerCase() !== 'ec.europa.eu') return null;
+
+  const match = parsed.pathname.match(
+    /^\/commission\/presscorner\/detail\/([a-z]{2})\/([a-z0-9]+(?:_[a-z0-9]+)+)\/?$/i,
+  );
+  if (!match) return null;
+
+  const apiUrl = new URL('/commission/presscorner/api/documents', parsed.origin);
+  apiUrl.searchParams.set('reference', match[2].replace(/_/g, '/').toUpperCase());
+  apiUrl.searchParams.set('language', match[1].toLowerCase());
+  apiUrl.searchParams.set('etrans', 'false');
+  await assertPublicUrl(apiUrl.toString());
+
+  try {
+    const response = await fetch(apiUrl, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(20_000),
+      headers: {
+        'User-Agent': 'x-manager/0.1 (+thread-builder)',
+        Accept: 'application/json',
+      },
+    });
+    if (!response.ok || [301, 302, 303, 307, 308].includes(response.status)) return null;
+    const contentLength = Number.parseInt(response.headers.get('content-length') || '', 10);
+    if (Number.isFinite(contentLength) && contentLength > MAX_HTML_BYTES) return null;
+    const raw = await response.text();
+    if (!raw || Buffer.byteLength(raw, 'utf8') > MAX_HTML_BYTES) return null;
+    return parseCommissionPressCornerPayload(JSON.parse(raw), articleUrl);
+  } catch {
+    return null;
+  }
 }
 
 function parseAttributes(tagHtml: string): Record<string, string> {
@@ -206,6 +316,9 @@ function extractQuoteCandidates(html: string, paragraphs: string[], maxQuotes: n
 
 export async function fetchAndExtractArticle(articleUrl: string, _maxRedirects = 5): Promise<ExtractedArticle> {
   await assertPublicUrl(articleUrl);
+
+  const commissionArticle = await fetchCommissionPressCornerArticle(articleUrl);
+  if (commissionArticle) return commissionArticle;
 
   const response = await fetch(articleUrl, {
     redirect: 'manual',
