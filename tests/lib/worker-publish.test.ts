@@ -131,6 +131,19 @@ describe('planWorkerPublishTime for posts', () => {
     expect(plan.scheduledAt.toISOString()).toBe('2026-09-02T08:00:00.000Z');
   });
 
+  it('ignores candidates beyond the horizon instead of waiting a week for them', () => {
+    const plan = planWorkerPublishTime({
+      now: new Date('2026-09-01T21:35:00Z'), // Tuesday evening
+      actionType: 'post',
+      candidates: [new Date('2026-09-08T17:00:00Z'), new Date('2026-09-08T21:00:00Z')], // next Tuesday
+      existingScheduled: [epoch('2026-09-01T21:18:00Z')],
+      window: utcWindow,
+    });
+    expect(plan.source).toBe('next-open-slot');
+    // earliest 22:05 -> 23:00 is outside the 6-23 window, so the next morning at 06:00
+    expect(plan.scheduledAt.toISOString()).toBe('2026-09-02T06:00:00.000Z');
+  });
+
   it('falls back to the next open, spaced hour when no candidate fits', () => {
     const plan = planWorkerPublishTime({
       now: new Date('2026-09-01T10:20:00Z'),

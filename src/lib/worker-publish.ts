@@ -30,6 +30,12 @@ export type PublishPlanInput = {
   spacingMinutes?: number;
   /** How far `nextOpenSlot` may search before giving up; defaults to 7 days. */
   maxSearchHours?: number;
+  /**
+   * Candidates further out than this are ignored; defaults to 36 h. The optimal-time
+   * heatmap is keyed by weekday, so with little history it happily suggests "next
+   * Tuesday" — a daily cadence must not wait a week for a marginally better hour.
+   */
+  maxHorizonHours?: number;
 };
 
 export type PublishPlan = {
@@ -112,7 +118,9 @@ export function planWorkerPublishTime(input: PublishPlanInput): PublishPlan {
   const minLeadMinutes = input.minLeadMinutes ?? (isReply ? 1 : 30);
   const spacingMinutes = isReply ? 0 : (input.spacingMinutes ?? 90);
   const maxSearchHours = input.maxSearchHours ?? 7 * 24;
+  const maxHorizonHours = input.maxHorizonHours ?? 36;
   const earliest = new Date(input.now.getTime() + minLeadMinutes * MINUTE);
+  const horizon = new Date(input.now.getTime() + maxHorizonHours * HOUR);
   const search = { window: input.window, existingScheduled: input.existingScheduled, spacingMinutes, maxSearchHours };
 
   if (isReply) {
@@ -124,6 +132,7 @@ export function planWorkerPublishTime(input: PublishPlanInput): PublishPlan {
 
   for (const candidate of input.candidates) {
     if (candidate.getTime() < earliest.getTime()) continue;
+    if (candidate.getTime() > horizon.getTime()) continue;
     if (!isInsideWindow(hourInTimezone(candidate, input.window.timezone), input.window)) continue;
     if (!isSpaced(candidate, input.existingScheduled, spacingMinutes)) continue;
     return { scheduledAt: candidate, source: 'optimal-slot' };
