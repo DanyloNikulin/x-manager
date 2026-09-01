@@ -123,9 +123,26 @@ export async function saveAccountProfile(slot: AccountSlot, patch: AccountProfil
  * four brief fields are imported; switches keep their stored values. Returns which
  * files were found so the UI can say what happened.
  */
+/**
+ * Where the legacy `accounts/` directory lives. The standalone Next.js server chdirs into
+ * `.next/standalone`, so the process cwd is not the repository root in production.
+ */
+export function resolveAccountsRoot(cwd: string = process.cwd()): string {
+  const candidates = [
+    process.env.X_MANAGER_ACCOUNTS_ROOT,
+    cwd,
+    path.resolve(cwd, '..', '..'),
+    process.env.X_MANAGER_DB_PATH ? path.resolve(path.dirname(process.env.X_MANAGER_DB_PATH), '..') : undefined,
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, 'accounts'))) return candidate;
+  }
+  return cwd;
+}
+
 export async function importAccountProfileFromFiles(
   slot: AccountSlot,
-  rootDir: string = process.cwd(),
+  rootDir: string = resolveAccountsRoot(),
 ): Promise<{ profile: AccountProfile; imported: BriefField[]; missing: BriefField[] }> {
   const workspace = path.join(rootDir, 'accounts', `slot-${slot}`);
   const patch: AccountProfilePatch = {};
