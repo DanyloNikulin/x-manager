@@ -4,6 +4,7 @@ import { parseAccountSlot, type AccountSlot } from '@/lib/account-slots';
 import { scheduleThread, type ThreadTweetInput } from '@/lib/thread-scheduler';
 import { withIdempotency } from '@/lib/idempotency';
 import { suggestOptimalTime } from '@/lib/optimal-time';
+import { asBool, asString } from '@/lib/http-parse';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,21 +34,7 @@ function isProvided(value: unknown): boolean {
   return true;
 }
 
-function asString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
 
-function asBool(value: unknown, defaultValue: boolean): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') {
-    const lowered = value.toLowerCase().trim();
-    if (['1', 'true', 'yes', 'y', 'on'].includes(lowered)) return true;
-    if (['0', 'false', 'no', 'n', 'off'].includes(lowered)) return false;
-  }
-  return defaultValue;
-}
 
 export async function POST(req: Request) {
   return withIdempotency('scheduler-thread', req, async () => {

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { normalizeAccountSlot } from '@/lib/account-slots';
-import { getResolvedXConfig } from '@/lib/x-config';
+import { asBool, asIntOr, asString } from '@/lib/http-parse';
+import { isPrivateHostname } from '@/lib/network-safety';
+import { scheduleThread } from '@/lib/thread-scheduler';
 import {
   buildThreadDraft,
   downloadRemoteImages,
@@ -29,41 +31,6 @@ type CreateThreadRequest = {
   replyToTweetId?: unknown;
 };
 
-function asString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function asBool(value: unknown, fallback: boolean): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
-    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
-  }
-  return fallback;
-}
-
-function asInt(value: unknown, fallback: number): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.floor(value);
-  if (typeof value === 'string') {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return fallback;
-}
-
-function isPrivateHostname(hostname: string): boolean {
-  const lower = hostname.toLowerCase();
-  if (lower === 'localhost' || lower === '::1' || lower.endsWith('.local')) return true;
-  if (/^127\./.test(lower)) return true;
-  if (/^10\./.test(lower)) return true;
-  if (/^192\.168\./.test(lower)) return true;
-  if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(lower)) return true;
-  return false;
-}
-
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as CreateThreadRequest;
@@ -87,7 +54,7 @@ export async function POST(req: Request) {
     }
 
     const accountSlot = normalizeAccountSlot(body.account_slot ?? body.accountSlot, 1);
-    const maxTweets = Math.max(2, Math.min(12, asInt(body.max_tweets ?? body.maxTweets, 6)));
+    const maxTweets = Math.max(2, Math.min(12, asIntOr(body.max_tweets ?? body.maxTweets, 6)));
     const includeImages = asBool(body.include_images ?? body.includeImages, true);
     const schedule = asBool(body.schedule, false);
     const dedupe = asBool(body.dedupe, true);
@@ -135,41 +102,33 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid scheduled_time. Provide an ISO date string.' }, { status: 400 });
     }
 
-    const config = await getResolvedXConfig();
-    const schedulerResponse = await fetch(`${config.appBaseUrl}/api/scheduler/thread`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        account_slot: accountSlot,
-        scheduled_time: parsedScheduled.toISOString(),
+    try {
+      const scheduleResult = await scheduleThread({
+        accountSlot,
+        scheduledTime: parsedScheduled,
         dedupe,
-        community_id: asString(body.community_id ?? body.communityId) || undefined,
-        reply_to_tweet_id: asString(body.reply_to_tweet_id ?? body.replyToTweetId) || undefined,
-        source_url: draft.source_url,
+        communityId: asString(body.community_id ?? body.communityId),
+        replyToTweetId: asString(body.reply_to_tweet_id ?? body.replyToTweetId),
+        sourceUrl: draft.source_url,
         tweets: draft.tweets,
-      }),
-    });
-
-    const schedulerJson = await schedulerResponse.json().catch(() => ({ error: 'Invalid scheduler response.' }));
-    if (!schedulerResponse.ok) {
+      });
+      return NextResponse.json({
+        ...baseResponse,
+        scheduled: true,
+        schedule_result: scheduleResult,
+      });
+    } catch (scheduleError) {
+      const message = scheduleError instanceof Error ? scheduleError.message : 'Failed to schedule generated thread.';
       return NextResponse.json(
         {
           error: 'Failed to schedule generated thread.',
-          details: schedulerJson,
+          details: { error: message },
           ...baseResponse,
           scheduled: false,
         },
         { status: 502 },
       );
     }
-
-    return NextResponse.json({
-      ...baseResponse,
-      scheduled: true,
-      schedule_result: schedulerJson,
-    });
   } catch (error) {
     console.error('Error creating thread from article:', error);
     const message = error instanceof Error ? error.message : 'Failed to create thread.';

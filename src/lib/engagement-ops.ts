@@ -2,14 +2,11 @@ import { eq } from 'drizzle-orm';
 import { db } from './db';
 import { engagementActions, xAccounts } from './db/schema';
 import { decryptAccountTokens } from './x-account-crypto';
-import { isAccountSlot, normalizeAccountSlot } from './account-slots';
+import { normalizeAccountSlot } from './account-slots';
 
+/** @deprecated Use normalizeAccountSlot from account-slots. Kept as a throwing-free alias. */
 export function parseAccountSlot(value: unknown, fallback = 1): 1 | 2 | 3 {
-  const slot = normalizeAccountSlot(value, fallback as 1 | 2 | 3);
-  if (!isAccountSlot(slot)) {
-    throw new Error('Invalid account slot. Use 1, 2, or 3.');
-  }
-  return slot;
+  return normalizeAccountSlot(value, fallback as 1 | 2 | 3);
 }
 
 export type ConnectedAccount = {

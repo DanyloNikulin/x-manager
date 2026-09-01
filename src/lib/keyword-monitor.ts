@@ -4,8 +4,8 @@ import { savedSearchMatches, savedSearches } from './db/schema';
 import { emitEvent } from './events';
 import { searchDiscoveryTopics } from './discovery-search';
 import { runKeywordTriggeredRules } from './automation-executor';
-import { requireConnectedAccount, recordEngagementAction } from './engagement-ops';
-import { likeTweet, postTweet } from './twitter-api-client';
+import { executeXAction } from './execute-x-action';
+import { normalizeAccountSlot } from './account-slots';
 import { renderTemplate } from './template-utils';
 import type { Logger } from './logger';
 
@@ -87,21 +87,17 @@ export async function runKeywordMonitor(logger: Logger): Promise<void> {
             authorUsername: topic.author.username,
           }, logger);
 
+          const slot = normalizeAccountSlot(search.accountSlot, 1);
+
           if (search.autoAction === 'like') {
-            const account = await requireConnectedAccount(search.accountSlot as 1 | 2 | 3);
-            if (!account.twitterUserId) {
-              logger.warn(`Saved search ${search.id}: connected account missing twitter user id, skipping like.`);
-              continue;
-            }
-            await likeTweet(account.twitterAccessToken, account.twitterAccessTokenSecret, account.twitterUserId, topic.id);
-            await db.update(savedSearchMatches).set({ actionStatus: 'liked' }).where(eq(savedSearchMatches.id, inserted[0].id));
-            await recordEngagementAction({
-              accountSlot: search.accountSlot as 1 | 2 | 3,
-              actionType: 'like',
+            await executeXAction({
+              type: 'like',
+              slot,
               targetId: topic.id,
               payload: { searchId: search.id, url: topic.url },
-              status: 'success',
+              enforcePolicy: false,
             });
+            await db.update(savedSearchMatches).set({ actionStatus: 'liked' }).where(eq(savedSearchMatches.id, inserted[0].id));
           }
 
           if (search.autoAction === 'reply') {
@@ -115,22 +111,15 @@ export async function runKeywordMonitor(logger: Logger): Promise<void> {
               continue;
             }
 
-            const account = await requireConnectedAccount(search.accountSlot as 1 | 2 | 3);
-            const replyResult = await postTweet(text, account.twitterAccessToken, account.twitterAccessTokenSecret, [], undefined, topic.id);
-            if (replyResult.errors?.length) {
-              logger.error(`Reply failed for match ${topic.id}:`, replyResult.errors.map((entry) => entry.message).join(' '));
-              continue;
-            }
-
-            await db.update(savedSearchMatches).set({ actionStatus: 'replied' }).where(eq(savedSearchMatches.id, inserted[0].id));
-            await recordEngagementAction({
-              accountSlot: search.accountSlot as 1 | 2 | 3,
-              actionType: 'reply',
+            await executeXAction({
+              type: 'reply',
+              slot,
+              text,
               targetId: topic.id,
               payload: { searchId: search.id, text },
-              result: replyResult,
-              status: 'success',
+              enforcePolicy: false,
             });
+            await db.update(savedSearchMatches).set({ actionStatus: 'replied' }).where(eq(savedSearchMatches.id, inserted[0].id));
           }
         } catch (matchError) {
           logger.error(`Keyword monitor: error processing match ${topic.id} for search ${search.id}:`, matchError);

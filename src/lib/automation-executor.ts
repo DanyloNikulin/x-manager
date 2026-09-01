@@ -5,8 +5,9 @@ import { emitEvent, onEventInternal, type EmitEventOptions } from './events';
 import { shouldRunCronNow } from './cron-utils';
 import { renderTemplate } from './template-utils';
 import { createScheduledPost } from './post-scheduler';
-import { parseAccountSlot, recordEngagementAction, requireConnectedAccount } from './engagement-ops';
-import { likeTweet, postTweet, repostTweet, sendDirectMessage } from './twitter-api-client';
+import { recordEngagementAction } from './engagement-ops';
+import { executeXAction } from './execute-x-action';
+import { normalizeAccountSlot } from './account-slots';
 import { assertPublicUrl } from './network-safety';
 import { suggestOptimalTime } from './optimal-time';
 import { logger as createLogger, type Logger } from './logger';
@@ -184,27 +185,21 @@ function emitAutomationOutcome(
 
 async function executeRuleAction(rule: RuleRow, context: Record<string, unknown>): Promise<Record<string, unknown>> {
   const actionConfig = parseJsonObject(rule.actionConfig);
-  const slot = parseAccountSlot(actionConfig.account_slot ?? rule.accountSlot);
+  const slot = normalizeAccountSlot(actionConfig.account_slot ?? rule.accountSlot, 1);
   const payload = extractPayload(context);
 
   switch (rule.actionType) {
     case 'like': {
       const tweetId = extractTweetId(context, actionConfig);
       if (!tweetId) throw new Error('Missing tweet id for like action.');
-      const account = await requireConnectedAccount(slot);
-      if (!account.twitterUserId) throw new Error('Connected account is missing twitter user id.');
-      await likeTweet(account.twitterAccessToken, account.twitterAccessTokenSecret, account.twitterUserId, tweetId);
-      await recordEngagementAction({ accountSlot: slot, actionType: 'like', targetId: tweetId, payload, status: 'success' });
+      await executeXAction({ type: 'like', slot, targetId: tweetId, payload, enforcePolicy: false });
       return { ok: true, action: 'like', tweetId };
     }
 
     case 'repost': {
       const tweetId = extractTweetId(context, actionConfig);
       if (!tweetId) throw new Error('Missing tweet id for repost action.');
-      const account = await requireConnectedAccount(slot);
-      if (!account.twitterUserId) throw new Error('Connected account is missing twitter user id.');
-      await repostTweet(account.twitterAccessToken, account.twitterAccessTokenSecret, account.twitterUserId, tweetId);
-      await recordEngagementAction({ accountSlot: slot, actionType: 'repost', targetId: tweetId, payload, status: 'success' });
+      await executeXAction({ type: 'repost', slot, targetId: tweetId, payload, enforcePolicy: false });
       return { ok: true, action: 'repost', tweetId };
     }
 
@@ -218,19 +213,14 @@ async function executeRuleAction(rule: RuleRow, context: Record<string, unknown>
           : '';
       const text = renderTemplate(template, { ...payload, payload, rule }).trim();
       if (!text) throw new Error('Reply action produced empty text.');
-      const account = await requireConnectedAccount(slot);
-      const result = await postTweet(text, account.twitterAccessToken, account.twitterAccessTokenSecret, [], undefined, tweetId);
-      if (result.errors?.length) {
-        throw new Error(result.errors.map((entry) => entry.message).join(' '));
-      }
-      await recordEngagementAction({
-        accountSlot: slot,
-        actionType: 'reply',
+      const result = await executeXAction({
+        type: 'reply',
+        slot,
+        text,
         targetId: tweetId,
         payload: { ...payload, text },
-        result,
-        status: 'success',
-      });
+        enforcePolicy: false,
+      }) as { data?: { id?: string } };
       return { ok: true, action: 'reply', tweetId, replyId: result.data?.id ?? null };
     }
 
@@ -240,16 +230,14 @@ async function executeRuleAction(rule: RuleRow, context: Record<string, unknown>
       const template = typeof actionConfig.text === 'string' ? actionConfig.text : '';
       const text = renderTemplate(template, { ...payload, payload, rule }).trim();
       if (!text) throw new Error('DM action produced empty text.');
-      const account = await requireConnectedAccount(slot);
-      const result = await sendDirectMessage(account.twitterAccessToken, account.twitterAccessTokenSecret, userId, text);
-      await recordEngagementAction({
-        accountSlot: slot,
-        actionType: 'dm_send',
+      const result = await executeXAction({
+        type: 'dm',
+        slot,
+        text,
         targetId: userId,
         payload: { ...payload, text },
-        result,
-        status: 'success',
-      });
+        enforcePolicy: false,
+      }) as { eventId?: string };
       return { ok: true, action: 'send_dm', userId, eventId: result.eventId };
     }
 

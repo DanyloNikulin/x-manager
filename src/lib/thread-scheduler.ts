@@ -7,6 +7,7 @@ import { parseAccountSlot, type AccountSlot } from '@/lib/account-slots';
 import { canonicalizeUrl, computeDedupeKey, extractFirstUrl, normalizeCopy } from '@/lib/scheduler-dedupe';
 import { ensureSafeUploadUrl } from '@/lib/uploads';
 import { isSqliteConstraintError } from '@/lib/sqlite-errors';
+import { asString } from '@/lib/http-parse';
 
 export interface ThreadTweetInput {
   text: string;
@@ -37,12 +38,6 @@ export interface ScheduleThreadResult {
   posts: Array<Record<string, unknown>>;
   skipped?: boolean;
   duplicates?: Array<Record<string, unknown>>;
-}
-
-function asString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }
 
 function pickMediaUrls(input: ThreadTweetInput): string[] {

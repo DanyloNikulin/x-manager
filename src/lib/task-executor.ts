@@ -5,9 +5,8 @@ import {
   campaigns,
   campaignApprovals,
 } from './db/schema';
-import { requireConnectedAccount, recordEngagementAction } from './engagement-ops';
-import { postTweet, sendDirectMessage, likeTweet, repostTweet } from './twitter-api-client';
-import { checkPolicy } from './policy';
+import { executeXAction } from './execute-x-action';
+import { normalizeAccountSlot } from './account-slots';
 import { validateTweetUrls } from './tweet-url-validator';
 
 // ---------------------------------------------------------------------------
@@ -256,32 +255,24 @@ async function executePostTask(
   details: Record<string, unknown>,
 ): Promise<{ output: unknown }> {
   const content = (details.content as string) ?? (details.text as string) ?? (details.raw as string) ?? task.title;
-  const accountSlot = (details.accountSlot as number) ?? 1;
-
-  const policyResult = await checkPolicy({ slot: accountSlot as 1 | 2 | 3, actionType: 'post' });
-  if (!policyResult.allowed) {
-    throw new Error(`Policy rejected: ${policyResult.reason}`);
-  }
-
-  const account = await requireConnectedAccount(accountSlot as 1 | 2 | 3);
+  const slot = normalizeAccountSlot(details.accountSlot, 1);
   const mediaIds = Array.isArray(details.mediaIds) ? (details.mediaIds as string[]) : [];
-  const communityId = (details.communityId as string) ?? undefined;
-  const replyToTweetId = (details.replyToTweetId as string) ?? undefined;
+  const communityId = typeof details.communityId === 'string' ? details.communityId : undefined;
+  const replyToTweetId = typeof details.replyToTweetId === 'string' ? details.replyToTweetId : undefined;
 
   await validateTweetUrls(content);
 
-  const result = await postTweet(
-    content,
-    account.twitterAccessToken,
-    account.twitterAccessTokenSecret,
+  const result = await executeXAction({
+    type: 'post',
+    slot,
+    text: content,
+    targetId: replyToTweetId,
     mediaIds,
     communityId,
-    replyToTweetId,
-  );
-
-  if (result.errors?.length) {
-    throw new Error(result.errors.map((e) => e.message).join('; '));
-  }
+    enforcePolicy: true,
+    record: false,
+    payload: { taskId: task.id },
+  }) as { data?: unknown };
 
   return { output: result.data };
 }
@@ -292,40 +283,20 @@ async function executeReplyTask(
 ): Promise<{ output: unknown }> {
   const content = (details.content as string) ?? (details.text as string) ?? task.title;
   const replyToTweetId = details.replyToTweetId as string;
-  const accountSlot = (details.accountSlot as number) ?? 1;
+  const slot = normalizeAccountSlot(details.accountSlot, 1);
 
   if (!replyToTweetId) {
     throw new Error('Reply task missing replyToTweetId in details.');
   }
 
-  const policyResult = await checkPolicy({ slot: accountSlot as 1 | 2 | 3, actionType: 'reply' });
-  if (!policyResult.allowed) {
-    throw new Error(`Policy rejected: ${policyResult.reason}`);
-  }
-
-  const account = await requireConnectedAccount(accountSlot as 1 | 2 | 3);
-
-  const result = await postTweet(
-    content,
-    account.twitterAccessToken,
-    account.twitterAccessTokenSecret,
-    [],
-    undefined,
-    replyToTweetId,
-  );
-
-  if (result.errors?.length) {
-    throw new Error(result.errors.map((e) => e.message).join('; '));
-  }
-
-  await recordEngagementAction({
-    accountSlot: accountSlot as 1 | 2 | 3,
-    actionType: 'reply',
+  const result = await executeXAction({
+    type: 'reply',
+    slot,
+    text: content,
     targetId: replyToTweetId,
+    enforcePolicy: true,
     payload: { content, taskId: task.id },
-    result: result.data,
-    status: 'success',
-  });
+  }) as { data?: unknown };
 
   return { output: result.data };
 }
@@ -336,33 +307,19 @@ async function executeDmTask(
 ): Promise<{ output: unknown }> {
   const content = (details.content as string) ?? (details.text as string) ?? task.title;
   const recipientUserId = details.recipientUserId as string;
-  const accountSlot = (details.accountSlot as number) ?? 1;
+  const slot = normalizeAccountSlot(details.accountSlot, 1);
 
   if (!recipientUserId) {
     throw new Error('DM task missing recipientUserId in details.');
   }
 
-  const policyResult = await checkPolicy({ slot: accountSlot as 1 | 2 | 3, actionType: 'dm' });
-  if (!policyResult.allowed) {
-    throw new Error(`Policy rejected: ${policyResult.reason}`);
-  }
-
-  const account = await requireConnectedAccount(accountSlot as 1 | 2 | 3);
-
-  const result = await sendDirectMessage(
-    account.twitterAccessToken,
-    account.twitterAccessTokenSecret,
-    recipientUserId,
-    content,
-  );
-
-  await recordEngagementAction({
-    accountSlot: accountSlot as 1 | 2 | 3,
-    actionType: 'dm_send',
+  const result = await executeXAction({
+    type: 'dm',
+    slot,
+    text: content,
     targetId: recipientUserId,
+    enforcePolicy: true,
     payload: { content, taskId: task.id },
-    result,
-    status: 'success',
   });
 
   return { output: result };
@@ -377,37 +334,24 @@ async function executeLikeTask(
     : typeof details.tweetId === 'string'
       ? [details.tweetId as string]
       : [];
-  const accountSlot = (details.accountSlot as number) ?? 1;
+  const slot = normalizeAccountSlot(details.accountSlot, 1);
 
   if (tweetIds.length === 0) {
     throw new Error('Like task missing tweetIds or tweetId in details.');
   }
 
-  const policyResult = await checkPolicy({ slot: accountSlot as 1 | 2 | 3, actionType: 'like' });
-  if (!policyResult.allowed) {
-    throw new Error(`Policy rejected: ${policyResult.reason}`);
-  }
-
-  const account = await requireConnectedAccount(accountSlot as 1 | 2 | 3);
   const results: Array<{ tweetId: string; status: string }> = [];
 
   for (const tweetId of tweetIds) {
     try {
-      await likeTweet(
-        account.twitterAccessToken,
-        account.twitterAccessTokenSecret,
-        account.twitterUserId!,
-        tweetId,
-      );
-      results.push({ tweetId, status: 'liked' });
-
-      await recordEngagementAction({
-        accountSlot: accountSlot as 1 | 2 | 3,
-        actionType: 'like',
+      await executeXAction({
+        type: 'like',
+        slot,
         targetId: tweetId,
+        enforcePolicy: true,
         payload: { taskId: task.id },
-        status: 'success',
       });
+      results.push({ tweetId, status: 'liked' });
     } catch (err) {
       results.push({ tweetId, status: `failed: ${err instanceof Error ? err.message : 'unknown'}` });
     }

@@ -1,14 +1,12 @@
 import { and, asc, eq, lte } from 'drizzle-orm';
 import { db } from './db';
 import { scheduledActions } from './db/schema';
-import { requireConnectedAccount, recordEngagementAction } from './engagement-ops';
-import { postTweet, sendDirectMessage, likeTweet, repostTweet } from './twitter-api-client';
 import { getResolvedXConfig } from './x-config';
-import { checkPolicy } from './policy';
 import { normalizeAccountSlot } from './account-slots';
 import { logger, type Logger } from './logger';
 import { createOwnerId, withLease } from './scheduler-lock';
 import { startIntervalLoop } from './interval-loop';
+import { executeXAction, is429Error, XActionError, type XActionType } from './execute-x-action';
 
 // ---------------------------------------------------------------------------
 // Logger
@@ -59,12 +57,11 @@ function parsePayloadJson(raw: string): Record<string, unknown> {
   return {};
 }
 
-function is429Error(error: unknown): boolean {
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase();
-    return msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests');
+function asXActionType(value: string): XActionType | null {
+  if (value === 'post' || value === 'reply' || value === 'dm' || value === 'like' || value === 'repost') {
+    return value;
   }
-  return false;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,244 +107,41 @@ export async function runActionSchedulerCycle(
 
     for (const action of dueActions) {
       try {
-        // ---- Resolve account ----
         const accountSlot = normalizeAccountSlot(action.accountSlot, 1);
-        const account = await requireConnectedAccount(accountSlot);
-
-        // ---- Check policy ----
-        const policyActionType = action.actionType === 'dm' ? 'dm' : action.actionType;
-        const policyResult = await checkPolicy({
-          slot: accountSlot,
-          actionType: policyActionType,
-        });
-
-        if (!policyResult.allowed) {
-          await updateActionStatus(action.id, 'failed', undefined, policyResult.reason);
+        const payload = parsePayloadJson(action.payloadJson);
+        const actionType = asXActionType(action.actionType);
+        if (!actionType) {
+          await updateActionStatus(action.id, 'failed', undefined, `Unknown action_type: ${action.actionType}`);
           failed += 1;
-          logger.warn(`Action ${action.id} blocked by policy: ${policyResult.reason}`);
+          logger.error(`Action ${action.id} failed: unknown action_type "${action.actionType}".`);
           continue;
         }
 
-        // ---- Parse payload ----
-        const payload = parsePayloadJson(action.payloadJson);
+        const text = typeof payload.text === 'string' ? payload.text : undefined;
+        const targetId = action.targetId
+          || (typeof payload.recipientUserId === 'string' ? payload.recipientUserId : null);
 
-        // ---- Execute action by type ----
-        let resultData: unknown = null;
-        let engagementActionType: 'reply' | 'dm_send' | 'like' | 'repost' = 'reply';
-
-        switch (action.actionType) {
-          case 'reply': {
-            engagementActionType = 'reply';
-            const text = typeof payload.text === 'string' ? payload.text : '';
-            if (!text) {
-              await updateActionStatus(action.id, 'failed', undefined, 'Missing reply text in payload.');
-              failed += 1;
-              logger.error(`Action ${action.id} failed: missing reply text.`);
-              continue;
-            }
-
-            const tweetResult = await postTweet(
-              text,
-              account.twitterAccessToken,
-              account.twitterAccessTokenSecret,
-              [],
-              undefined,
-              action.targetId || undefined,
-              config,
-            );
-
-            if (tweetResult.errors && tweetResult.errors.length > 0) {
-              const message = tweetResult.errors.map((e) => e.message).join(', ');
-              await updateActionStatus(action.id, 'failed', JSON.stringify(tweetResult), message);
-              await recordEngagementAction({
-                accountSlot,
-                actionType: 'reply',
-                targetId: action.targetId,
-                payload,
-                result: tweetResult,
-                status: 'failed',
-                errorMessage: message,
-              });
-              failed += 1;
-              logger.error(`Action ${action.id} (reply) failed: ${message}`);
-              continue;
-            }
-
-            resultData = tweetResult;
-            break;
-          }
-
-          case 'dm': {
-            engagementActionType = 'dm_send';
-            const dmText = typeof payload.text === 'string' ? payload.text : '';
-            const recipientUserId = action.targetId || (typeof payload.recipientUserId === 'string' ? payload.recipientUserId : '');
-
-            if (!dmText || !recipientUserId) {
-              await updateActionStatus(action.id, 'failed', undefined, 'Missing DM text or recipient user ID.');
-              failed += 1;
-              logger.error(`Action ${action.id} failed: missing DM text or recipient.`);
-              continue;
-            }
-
-            try {
-              const dmResult = await sendDirectMessage(
-                account.twitterAccessToken,
-                account.twitterAccessTokenSecret,
-                recipientUserId,
-                dmText,
-                config,
-              );
-              resultData = dmResult;
-            } catch (dmError) {
-              const message = dmError instanceof Error ? dmError.message : 'Failed to send DM';
-              const retryable = is429Error(dmError);
-              await updateActionStatus(
-                action.id,
-                'failed',
-                undefined,
-                retryable ? `Rate limited (429): ${message}` : message,
-              );
-              await recordEngagementAction({
-                accountSlot,
-                actionType: 'dm_send',
-                targetId: action.targetId,
-                payload,
-                status: 'failed',
-                errorMessage: message,
-              });
-              failed += 1;
-              logger.error(`Action ${action.id} (dm) failed: ${message}`);
-              continue;
-            }
-            break;
-          }
-
-          case 'like': {
-            engagementActionType = 'like';
-            const tweetId = action.targetId;
-            if (!tweetId) {
-              await updateActionStatus(action.id, 'failed', undefined, 'Missing target tweet ID for like.');
-              failed += 1;
-              logger.error(`Action ${action.id} failed: missing target tweet ID.`);
-              continue;
-            }
-
-            if (!account.twitterUserId) {
-              await updateActionStatus(action.id, 'failed', undefined, 'Account missing twitterUserId for like.');
-              failed += 1;
-              logger.error(`Action ${action.id} failed: account missing twitterUserId.`);
-              continue;
-            }
-
-            try {
-              await likeTweet(
-                account.twitterAccessToken,
-                account.twitterAccessTokenSecret,
-                account.twitterUserId,
-                tweetId,
-                config,
-              );
-              resultData = { liked: true, tweetId };
-            } catch (likeError) {
-              const message = likeError instanceof Error ? likeError.message : 'Failed to like tweet';
-              const retryable = is429Error(likeError);
-              await updateActionStatus(
-                action.id,
-                'failed',
-                undefined,
-                retryable ? `Rate limited (429): ${message}` : message,
-              );
-              await recordEngagementAction({
-                accountSlot,
-                actionType: 'like',
-                targetId: action.targetId,
-                payload,
-                status: 'failed',
-                errorMessage: message,
-              });
-              failed += 1;
-              logger.error(`Action ${action.id} (like) failed: ${message}`);
-              continue;
-            }
-            break;
-          }
-
-          case 'repost': {
-            engagementActionType = 'repost';
-            const repostTweetId = action.targetId;
-            if (!repostTweetId) {
-              await updateActionStatus(action.id, 'failed', undefined, 'Missing target tweet ID for repost.');
-              failed += 1;
-              logger.error(`Action ${action.id} failed: missing target tweet ID.`);
-              continue;
-            }
-
-            if (!account.twitterUserId) {
-              await updateActionStatus(action.id, 'failed', undefined, 'Account missing twitterUserId for repost.');
-              failed += 1;
-              logger.error(`Action ${action.id} failed: account missing twitterUserId.`);
-              continue;
-            }
-
-            try {
-              await repostTweet(
-                account.twitterAccessToken,
-                account.twitterAccessTokenSecret,
-                account.twitterUserId,
-                repostTweetId,
-                config,
-              );
-              resultData = { reposted: true, tweetId: repostTweetId };
-            } catch (repostError) {
-              const message = repostError instanceof Error ? repostError.message : 'Failed to repost tweet';
-              const retryable = is429Error(repostError);
-              await updateActionStatus(
-                action.id,
-                'failed',
-                undefined,
-                retryable ? `Rate limited (429): ${message}` : message,
-              );
-              await recordEngagementAction({
-                accountSlot,
-                actionType: 'repost',
-                targetId: action.targetId,
-                payload,
-                status: 'failed',
-                errorMessage: message,
-              });
-              failed += 1;
-              logger.error(`Action ${action.id} (repost) failed: ${message}`);
-              continue;
-            }
-            break;
-          }
-
-          default: {
-            await updateActionStatus(action.id, 'failed', undefined, `Unknown action_type: ${action.actionType}`);
-            failed += 1;
-            logger.error(`Action ${action.id} failed: unknown action_type "${action.actionType}".`);
-            continue;
-          }
-        }
-
-        // ---- Mark completed ----
-        await updateActionStatus(action.id, 'completed', JSON.stringify(resultData));
-        await recordEngagementAction({
-          accountSlot,
-          actionType: engagementActionType,
-          targetId: action.targetId,
+        const resultData = await executeXAction({
+          type: actionType,
+          slot: accountSlot,
+          text,
+          targetId,
+          config,
+          enforcePolicy: true,
+          record: true,
           payload,
-          result: resultData,
-          status: 'success',
         });
+
+        await updateActionStatus(action.id, 'completed', JSON.stringify(resultData));
         completed += 1;
         logger.info(`Action ${action.id} (${action.actionType}) completed successfully.`);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
-        const retryable = is429Error(error);
-        const errorText = retryable ? `Rate limited (429): ${message}` : message;
+        const retryable = error instanceof XActionError ? error.retryable : is429Error(error);
+        const errorText = retryable && !message.includes('429') ? `Rate limited (429): ${message}` : message;
+        const resultJson = error instanceof XActionError && error.result ? JSON.stringify(error.result) : undefined;
 
-        await updateActionStatus(action.id, 'failed', undefined, errorText);
+        await updateActionStatus(action.id, 'failed', resultJson, errorText);
         failed += 1;
         logger.error(`Action ${action.id} failed with exception: ${errorText}`);
       }
