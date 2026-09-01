@@ -15,8 +15,10 @@ import OpsCenter from '@/components/OpsCenter';
 import Analytics from '@/components/Analytics';
 import DraftManager from '@/components/DraftManager';
 import CliAuthPanel from '@/components/CliAuthPanel';
+import CsvImporter from '@/components/CsvImporter';
+import AddContext from '@/components/AddContext';
 
-type AppView = 'dashboard' | 'calendar' | 'discovery' | 'ops' | 'analytics' | 'drafts' | 'accounts' | 'settings';
+type AppView = 'dashboard' | 'calendar' | 'discovery' | 'import' | 'ops' | 'analytics' | 'drafts' | 'accounts' | 'settings';
 
 export default function Home() {
   const [currentView, setCurrentView] = useState<AppView>('dashboard');
@@ -119,6 +121,21 @@ export default function Home() {
       return (
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-4 min-h-[calc(100vh-124px)]">
           <TopicDiscovery />
+        </div>
+      );
+    }
+
+    if (currentView === 'import') {
+      return (
+        <div className="space-y-4 min-h-[calc(100vh-124px)]">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Import</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              Bring posts in from a CSV, or add extra context for generation.
+            </p>
+          </div>
+          <CsvImporter />
+          <AddContext />
         </div>
       );
     }

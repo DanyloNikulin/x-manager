@@ -3,13 +3,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import TwitterConnector from './TwitterConnector';
 import Scheduler from './Scheduler';
-import { Loader2, Calendar, Hash, FileInput } from 'lucide-react';
-import AddContext from './AddContext';
+import { Loader2, Calendar, Hash } from 'lucide-react';
 import TopicDiscovery from './TopicDiscovery';
-import CsvImporter from './CsvImporter';
 import ReadinessPanel from './ReadinessPanel';
 import SetupPanel from './SetupPanel';
-import CreateThreadFromArticle from './CreateThreadFromArticle';
+
 
 interface TwitterUser {
   id: number | null;
@@ -91,7 +89,7 @@ export default function MainDashboard() {
       </div>
 
       {hasConnectedAccount ? (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-280px)] min-h-[600px]">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-280px)] min-h-[600px]">
 
           {/* Column 1: Scheduler */}
           <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
@@ -108,27 +106,10 @@ export default function MainDashboard() {
           <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
             <div className="p-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex items-center gap-2">
               <Hash size={18} className="text-teal-600" />
-              <h3 className="font-semibold text-slate-700 dark:text-slate-300">Topic Discovery</h3>
+              <h3 className="font-semibold text-slate-700 dark:text-slate-300">Discovery</h3>
             </div>
             <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-              <TopicDiscovery />
-            </div>
-          </div>
-
-          {/* Column 3: Tools */}
-          <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col overflow-hidden">
-            <div className="p-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex items-center gap-2">
-              <FileInput size={18} className="text-teal-600" />
-              <h3 className="font-semibold text-slate-700 dark:text-slate-300">Import & Context</h3>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
-              <CreateThreadFromArticle onScheduled={handleSchedulerRefresh} />
-              <div className="border-t border-slate-100 dark:border-slate-700 pt-6">
-                <CsvImporter onImported={handleSchedulerRefresh} />
-              </div>
-              <div className="border-t border-slate-100 dark:border-slate-700 pt-6">
-                <AddContext onSchedulerRefresh={handleSchedulerRefresh} />
-              </div>
+              <TopicDiscovery embedded onScheduled={handleSchedulerRefresh} />
             </div>
           </div>
 

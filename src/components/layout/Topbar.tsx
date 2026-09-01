@@ -13,7 +13,8 @@ interface TopbarProps {
 const VIEW_TITLES: Record<string, string> = {
   dashboard: 'Dashboard',
   calendar: 'Content Planner',
-  discovery: 'Topic Discovery',
+  discovery: 'Discovery',
+  import: 'Import',
   analytics: 'Analytics',
   drafts: 'Draft Manager',
   ops: 'Ops Center',

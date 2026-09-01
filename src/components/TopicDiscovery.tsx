@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Loader2, Search, Link2, Copy, BarChart3 } from 'lucide-react';
+import CreateThreadFromArticle from './CreateThreadFromArticle';
 
 type Topic = {
   id: string;
@@ -30,7 +31,13 @@ type UsageResponse = {
   usage: unknown;
 };
 
-export default function TopicDiscovery() {
+export default function TopicDiscovery({
+  onScheduled,
+  embedded = false,
+}: {
+  onScheduled?: () => void;
+  embedded?: boolean;
+}) {
   const [keywords, setKeywords] = useState('ai agents, productivity');
   const [limit, setLimit] = useState(10);
   const [isSearching, setIsSearching] = useState(false);
@@ -99,14 +106,16 @@ export default function TopicDiscovery() {
     }
   };
 
-  return (
-    <div className="dashboard-card fade-up mt-6">
-      <div className="p-6 space-y-5">
+  const body = (
+    <div className={embedded ? 'space-y-5' : 'p-6 space-y-5'}>
+        <CreateThreadFromArticle onScheduled={onScheduled} embedded />
+
+        <div className="border-t border-slate-200 dark:border-slate-700 pt-5 space-y-5">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h3 className="text-lg font-medium text-gray-900 dark:text-slate-100">Topic Discovery</h3>
+            <h3 className="text-base font-medium text-gray-900 dark:text-slate-100">Find topics</h3>
             <p className="text-sm text-gray-600 dark:text-slate-300 mt-1">
-              Find reply-worthy posts and keep an eye on usage credits.
+              Search reply-worthy posts and keep an eye on usage credits.
             </p>
           </div>
           <button
@@ -229,7 +238,10 @@ export default function TopicDiscovery() {
             ))
           )}
         </div>
-      </div>
+        </div>
     </div>
   );
+
+  if (embedded) return body;
+  return <div className="dashboard-card fade-up">{body}</div>;
 }

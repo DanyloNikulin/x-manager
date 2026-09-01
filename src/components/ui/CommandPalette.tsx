@@ -213,6 +213,12 @@ export default function CommandPalette({
       view: 'analytics',
     },
     {
+      id: 'view-import',
+      label: 'Import CSV',
+      icon: <FileText size={16} />,
+      view: 'import',
+    },
+    {
       id: 'view-drafts',
       label: 'View Drafts',
       icon: <FileText size={16} />,

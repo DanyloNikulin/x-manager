@@ -60,7 +60,7 @@ const providerLabels: Record<CliAuthProvider, string> = {
 };
 
 const allowedAuthHosts: Record<CliAuthProvider, string[]> = {
-  claude: ['claude.ai', 'anthropic.com'],
+  claude: ['claude.ai', 'claude.com', 'anthropic.com'],
   codex: ['openai.com', 'chatgpt.com'],
   kimi: ['kimi.ai', 'kimi.com'],
 };
@@ -206,7 +206,7 @@ function appendOutput(session: CliLoginSession, chunk: Buffer | string): void {
   extractLoginHints(session);
 }
 
-function isAllowedAuthUrl(provider: CliAuthProvider, candidate: string): boolean {
+export function isAllowedAuthUrl(provider: CliAuthProvider, candidate: string): boolean {
   try {
     const url = new URL(candidate.replace(/[),.;]+$/, ''));
     return url.protocol === 'https:' && allowedAuthHosts[provider].some(
@@ -385,9 +385,13 @@ export function startCliLogin(provider: CliAuthProvider): CliLoginSessionView {
     child,
     timeout: null,
   };
-  // These commands use browser/device authorization; close stdin so a hidden
-  // process cannot wait forever for an interactive terminal prompt.
-  child.stdin.end();
+  // Codex/Kimi device flows never read stdin. Claude prints a browser URL,
+  // then waits for the one-time code — keep stdin open so the dashboard can
+  // send that code. Close stdin for everyone else so a hidden process cannot
+  // hang on an interactive prompt.
+  if (provider !== 'claude') {
+    child.stdin.end();
+  }
   session.timeout = setTimeout(() => {
     if (session.state !== 'running') return;
     session.state = 'failed';
@@ -417,6 +421,20 @@ export function startCliLogin(provider: CliAuthProvider): CliLoginSessionView {
     store.statusCache = null;
   });
 
+  return sessionView(session);
+}
+
+export function submitCliLoginInput(provider: CliAuthProvider, code: string): CliLoginSessionView {
+  const session = store.sessions.get(provider);
+  if (!session || session.state !== 'running') {
+    throw new Error('No running login session to receive a code.');
+  }
+  const stdin = session.child.stdin;
+  if (!stdin || stdin.destroyed) {
+    throw new Error('This login session cannot accept a pasted code.');
+  }
+  stdin.write(`${code.trim()}\n`);
+  appendOutput(session, '\n[dashboard] submitted the browser login code\n');
   return sessionView(session);
 }
 

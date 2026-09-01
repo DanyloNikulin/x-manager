@@ -54,6 +54,7 @@ export default function CliAuthPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeAction, setActiveAction] = useState<Provider | null>(null);
+  const [codes, setCodes] = useState<Partial<Record<Provider, string>>>({});
 
   const load = useCallback(async (force = false) => {
     try {
@@ -113,6 +114,28 @@ export default function CliAuthPanel() {
       await navigator.clipboard.writeText(code);
     } catch {
       setError('Clipboard access was denied. Select and copy the code manually.');
+    }
+  };
+
+  const submitBrowserCode = async (provider: Provider) => {
+    const code = (codes[provider] || '').trim();
+    if (!code) return;
+    setActiveAction(provider);
+    setError('');
+    try {
+      const response = await fetch(`/api/system/cli-auth/${provider}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || 'Could not submit the login code.');
+      setCodes((current) => ({ ...current, [provider]: '' }));
+      await load(false);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Could not submit the login code.');
+    } finally {
+      setActiveAction(null);
     }
   };
 
@@ -210,6 +233,35 @@ export default function CliAuthPanel() {
                         <span>{session.deviceCode}</span>
                         <Copy className="h-3.5 w-3.5 text-slate-400" />
                       </button>
+                    )}
+                    {provider.provider === 'claude' && session.state === 'running' && (
+                      <form
+                        className="space-y-2"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void submitBrowserCode('claude');
+                        }}
+                      >
+                        <p className="text-[11px] leading-relaxed text-slate-300">
+                          Open the sign-in page, finish in the browser, then paste the code <strong className="text-white">here</strong>. Do not paste it into Claude Code.
+                        </p>
+                        <div className="flex gap-2">
+                          <input
+                            value={codes.claude || ''}
+                            onChange={(event) => setCodes((current) => ({ ...current, claude: event.target.value }))}
+                            placeholder="Paste browser code"
+                            autoComplete="off"
+                            className="min-w-0 flex-1 rounded-md border border-slate-600 bg-slate-900 px-2 py-2 font-mono text-xs text-white"
+                          />
+                          <button
+                            type="submit"
+                            disabled={!codes.claude?.trim() || activeAction === 'claude'}
+                            className="rounded-md bg-cyan-300 px-3 py-2 text-xs font-semibold text-slate-950 disabled:opacity-40"
+                          >
+                            Send
+                          </button>
+                        </div>
+                      </form>
                     )}
                     {session.output && (
                       <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-md bg-black/30 p-2 font-mono text-[10px] leading-relaxed text-slate-400">{session.output}</pre>

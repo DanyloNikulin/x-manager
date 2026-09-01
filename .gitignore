@@ -99,3 +99,9 @@ test-*.js
 
 # Misc
 *.pem
+ 
+# SQLite sidecars - hold recent transaction data 
+*.db-wal 
+*.db-shm 
+# build output 
+/bin/ 

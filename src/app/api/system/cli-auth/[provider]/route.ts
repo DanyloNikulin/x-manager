@@ -4,6 +4,7 @@ import {
   isAllowedCliAuthOrigin,
   parseCliAuthProvider,
   startCliLogin,
+  submitCliLoginInput,
 } from '@/lib/cli-auth';
 
 export const runtime = 'nodejs';
@@ -27,6 +28,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
     return NextResponse.json({ error: 'Unknown CLI provider.' }, { status: 404 });
   }
   try {
+    const body = await req.json().catch(() => ({})) as { code?: unknown };
+    const code = typeof body.code === 'string' ? body.code.trim() : '';
+    if (code) {
+      return NextResponse.json({ session: submitCliLoginInput(provider, code) });
+    }
     return NextResponse.json({ session: startCliLogin(provider) }, { status: 202 });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Could not start CLI login.';

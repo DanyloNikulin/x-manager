@@ -138,8 +138,8 @@ export default function CsvImporter({ onImported }: CsvImporterProps) {
   };
 
   return (
-    <div className="dashboard-card fade-up mt-6">
-      <div className="p-6 space-y-4">
+    <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+      <div className="space-y-5 p-5 sm:p-6">
         <div className="flex items-center gap-2">
           <FileUp className="h-5 w-5 text-blue-600" />
           <h3 className="text-lg font-medium text-gray-900 dark:text-slate-100">CSV Tweet Import</h3>
@@ -149,57 +149,66 @@ export default function CsvImporter({ onImported }: CsvImporterProps) {
           Upload a CSV with columns like <code>text</code>, <code>scheduled_time</code>, <code>community_id</code>, <code>reply_to_tweet_id</code>, and <code>account_slot</code>.
         </p>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">CSV File</label>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={(e) => {
-                const selected = e.target.files?.[0] || null;
-                setFile(selected);
-                setPreview([]);
-                setErrors([]);
-                setWarnings([]);
-                setStatusMessage('');
-                setStatusError('');
-              }}
-              className="w-full p-2 border border-gray-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-slate-100"
-            />
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-slate-200">CSV File</label>
+            <label className="flex min-w-0 cursor-pointer items-center gap-3 rounded-lg border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-600 dark:bg-slate-900">
+              <span className="shrink-0 rounded-md bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                Choose file
+              </span>
+              <span className="min-w-0 truncate text-sm text-slate-600 dark:text-slate-300">
+                {file ? file.name : 'No file selected'}
+              </span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => {
+                  const selected = e.target.files?.[0] || null;
+                  setFile(selected);
+                  setPreview([]);
+                  setErrors([]);
+                  setWarnings([]);
+                  setStatusMessage('');
+                  setStatusError('');
+                }}
+                className="sr-only"
+              />
+            </label>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">Auto Interval (min)</label>
-            <input
-              type="number"
-              min={1}
-              max={1440}
-              value={intervalMinutes}
-              onChange={(e) => setIntervalMinutes(Math.min(Math.max(Number(e.target.value) || 60, 1), 1440))}
-              className="w-full p-2 border border-gray-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-slate-100"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">Auto Start Date &amp; Time</label>
-            <input
-              type="datetime-local"
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-slate-100"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">Account Slot</label>
-            <select
-              value={accountSlot}
-              onChange={(e) => setAccountSlot(Number(e.target.value))}
-              className="w-full p-2 border border-gray-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-slate-100"
-            >
-              <option value={1}>Account 1</option>
-              <option value={2}>Account 2</option>
-              <option value={3}>Account 3</option>
-            </select>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-slate-200">Auto interval (min)</label>
+              <input
+                type="number"
+                min={1}
+                max={1440}
+                value={intervalMinutes}
+                onChange={(e) => setIntervalMinutes(Math.min(Math.max(Number(e.target.value) || 60, 1), 1440))}
+                className="w-full min-w-0 rounded-lg border border-gray-300 p-2.5 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-slate-200">Auto start date &amp; time</label>
+              <input
+                type="datetime-local"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="w-full min-w-0 rounded-lg border border-gray-300 p-2.5 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-slate-200">Account slot</label>
+              <select
+                value={accountSlot}
+                onChange={(e) => setAccountSlot(Number(e.target.value))}
+                className="w-full min-w-0 rounded-lg border border-gray-300 p-2.5 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+              >
+                <option value={1}>Account 1</option>
+                <option value={2}>Account 2</option>
+                <option value={3}>Account 3</option>
+              </select>
+            </div>
           </div>
         </div>
 

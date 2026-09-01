@@ -1,6 +1,6 @@
 'use client';
 
-import { Home, Calendar, Compass, Settings, Users, LogOut, Workflow, BarChart3, FileText } from 'lucide-react';
+import { Home, Calendar, Compass, Settings, Users, LogOut, Workflow, BarChart3, FileText, FileUp } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/ThemeProvider';
 
 interface SidebarProps {
@@ -36,6 +36,12 @@ export default function Sidebar({ activeView, onViewChange, onLogout }: SidebarP
           label="Discovery" 
           active={activeView === 'discovery'} 
           onClick={() => onViewChange('discovery')} 
+        />
+        <NavItem
+          icon={<FileUp size={22} />}
+          label="Import"
+          active={activeView === 'import'}
+          onClick={() => onViewChange('import')}
         />
         <NavItem
           icon={<FileText size={22} />}
