@@ -182,9 +182,9 @@ impl Config {
                 bail!("accounts.{slot}.posts_per_day requires a [planner] section");
             }
         }
-        for slot in ["1", "2"] {
-            if !self.accounts.contains_key(slot) {
-                bail!("accounts.{slot} is required");
+        for slot in self.accounts.keys() {
+            if !matches!(slot.as_str(), "1" | "2" | "3") {
+                bail!("accounts.{slot} is not a valid slot (use 1, 2 or 3)");
             }
         }
         Ok(())

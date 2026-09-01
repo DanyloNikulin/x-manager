@@ -67,11 +67,8 @@ async fn doctor(config: &Config, manager: &ManagerClient) -> Result<()> {
     if let Some(planner) = &config.planner {
         check_program(&planner.program)?;
     }
-    for slot in ["1", "2"] {
-        let account = config
-            .accounts
-            .get(slot)
-            .context("missing account config")?;
+    // TOML accounts are the legacy/fallback source; profiles stored in X-Manager need no files.
+    for (slot, account) in &config.accounts {
         let workspace = config.resolve(&account.workspace);
         if !workspace.is_dir() {
             bail!(

@@ -5,18 +5,18 @@
 //! (`research`, assigned to `planner`) so that neither a failure nor an empty answer
 //! makes the worker loop call the planner again five minutes later.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::{Timelike, Utc};
 use chrono_tz::Tz;
 use serde_json::json;
 use tracing::{info, warn};
 
 use crate::{
+    accounts::{ALL_SLOTS, EffectiveAccount, resolve_account},
     agents::run_json_agent,
-    config::{AccountConfig, Config},
+    config::Config,
     manager::ManagerClient,
     models::{PlannedTask, PlannerOutput, RecentPost},
-    worker::load_account_context,
 };
 
 pub const PLANNER_AGENT: &str = "planner";
@@ -28,28 +28,24 @@ pub async fn plan_day(config: &Config, manager: &ManagerClient) -> Result<usize>
     let Some(planner) = config.planner.as_ref() else {
         return Ok(0);
     };
-    let tz: Tz = config
-        .worker
-        .plan_timezone
-        .parse()
-        .map_err(|_| anyhow::anyhow!("worker.plan_timezone is not a valid IANA timezone"))?;
-    let now_local = Utc::now().with_timezone(&tz);
-    if !is_planning_time(now_local.hour(), config.worker.plan_hour) {
-        return Ok(0);
-    }
-    let day = now_local.format("%Y-%m-%d").to_string();
-
-    let mut accounts: Vec<(&String, &AccountConfig)> = config.accounts.iter().collect();
-    accounts.sort_by(|a, b| a.0.cmp(b.0));
 
     let mut created_total = 0;
-    for (slot_key, account) in accounts {
-        if account.posts_per_day == 0 {
+    for slot in ALL_SLOTS {
+        let Some(account) = resolve_account(config, manager, slot).await? else {
+            continue;
+        };
+        if account.posts_per_day == 0 || account.paused {
             continue;
         }
-        let slot: u8 = slot_key
-            .parse()
-            .with_context(|| format!("account key {slot_key} is not a slot number"))?;
+        let tz: Tz = account.plan_timezone.parse().map_err(|_| {
+            anyhow::anyhow!("account slot {slot}: plan_timezone is not a valid IANA timezone")
+        })?;
+        let now_local = Utc::now().with_timezone(&tz);
+        if !is_planning_time(now_local.hour(), account.plan_hour) {
+            continue;
+        }
+        let day = now_local.format("%Y-%m-%d").to_string();
+
         let campaign_id = manager
             .find_or_create_campaign(slot, &campaign_name(slot), &campaign_objective(slot))
             .await?;
@@ -59,8 +55,6 @@ pub async fn plan_day(config: &Config, manager: &ManagerClient) -> Result<usize>
             continue;
         }
 
-        let workspace = config.resolve(&account.workspace);
-        let account_context = load_account_context(&workspace, account).await?;
         let recent = match manager.recent_posts(slot, RECENT_POSTS).await {
             Ok(posts) => posts,
             Err(error) => {
@@ -68,16 +62,9 @@ pub async fn plan_day(config: &Config, manager: &ManagerClient) -> Result<usize>
                 Vec::new()
             }
         };
-        let prompt = planner_prompt(
-            account,
-            &account_context,
-            &recent,
-            &day,
-            &config.worker.plan_timezone,
-            account.posts_per_day,
-        );
+        let prompt = planner_prompt(&account, &recent, &day);
 
-        match run_json_agent::<PlannerOutput>(config, planner, &prompt, &workspace).await {
+        match run_json_agent::<PlannerOutput>(config, planner, &prompt, &account.workspace).await {
             Ok(output) => {
                 let mut created = 0;
                 let mut summary = Vec::new();
@@ -92,7 +79,12 @@ pub async fn plan_day(config: &Config, manager: &ManagerClient) -> Result<usize>
                         "angle": planned.angle,
                         "pillar": planned.pillar,
                         "source_notes": planned.source_notes,
-                        "planner": { "day": day, "slot": slot, "worker_id": config.worker.id },
+                        "planner": {
+                            "day": day,
+                            "slot": slot,
+                            "worker_id": config.worker.id,
+                            "account_source": account.source,
+                        },
                     });
                     let task_id = manager
                         .create_task(
@@ -113,6 +105,7 @@ pub async fn plan_day(config: &Config, manager: &ManagerClient) -> Result<usize>
                     "created": created,
                     "tasks": summary,
                     "notes": output.notes,
+                    "account_source": account.source,
                 });
                 manager
                     .create_task(
@@ -125,7 +118,7 @@ pub async fn plan_day(config: &Config, manager: &ManagerClient) -> Result<usize>
                         "done",
                     )
                     .await?;
-                info!(slot, day = %day, planned = output.tasks.len(), created, "planner pass completed");
+                info!(slot, day = %day, planned = output.tasks.len(), created, source = account.source, "planner pass completed");
                 created_total += created;
             }
             Err(error) => {
@@ -135,7 +128,7 @@ pub async fn plan_day(config: &Config, manager: &ManagerClient) -> Result<usize>
                         campaign_id,
                         MARKER_TASK_TYPE,
                         &marker,
-                        &json!({ "error": message }).to_string(),
+                        &json!({ "error": message, "account_source": account.source }).to_string(),
                         3,
                         PLANNER_AGENT,
                         "failed",
@@ -191,14 +184,7 @@ pub fn validate_planned(task: &PlannedTask) -> std::result::Result<(), String> {
     Ok(())
 }
 
-fn planner_prompt(
-    account: &AccountConfig,
-    account_context: &str,
-    recent: &[RecentPost],
-    day: &str,
-    timezone: &str,
-    budget: u32,
-) -> String {
+fn planner_prompt(account: &EffectiveAccount, recent: &[RecentPost], day: &str) -> String {
     let recent_block = if recent.is_empty() {
         "(none yet)".to_owned()
     } else {
@@ -233,7 +219,10 @@ For each task give: topic; angle (the account's specific take in its register, o
 
 Return JSON only matching the configured schema:
 {{"tasks":[{{"topic":"...","angle":"...","pillar":"...","source_notes":[{{"url":"...","note":"..."}}]}}],"notes":"..."}}"#,
+        account_context = account.context,
+        timezone = account.plan_timezone,
         language = account.language,
+        budget = account.posts_per_day,
     )
 }
 

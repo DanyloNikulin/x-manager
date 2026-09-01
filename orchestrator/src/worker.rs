@@ -7,6 +7,7 @@ use tokio::fs;
 use tracing::{info, warn};
 
 use crate::{
+    accounts::{EffectiveAccount, resolve_account},
     agents::run_json_agent,
     config::{AccountConfig, Config, PublicationMode},
     manager::ManagerClient,
@@ -33,7 +34,7 @@ pub async fn run_once(config: &Config, manager: &ManagerClient) -> Result<usize>
             continue;
         }
 
-        match process_claimed_task(config, &task).await {
+        match process_claimed_task(config, manager, &task).await {
             Ok(ProcessedTask::Drafted {
                 text,
                 reply_to_tweet_id,
@@ -99,7 +100,11 @@ enum ProcessedTask {
     },
 }
 
-async fn process_claimed_task(config: &Config, task: &WorkerTask) -> Result<ProcessedTask> {
+async fn process_claimed_task(
+    config: &Config,
+    manager: &ManagerClient,
+    task: &WorkerTask,
+) -> Result<ProcessedTask> {
     if task.task_type != "post" && task.task_type != "reply" {
         bail!(
             "task type {} is not supported by the first worker release",
@@ -107,19 +112,18 @@ async fn process_claimed_task(config: &Config, task: &WorkerTask) -> Result<Proc
         );
     }
 
-    let account = config
-        .accounts
-        .get(&task.account_slot.to_string())
+    let account = resolve_account(config, manager, task.account_slot)
+        .await?
         .with_context(|| format!("account slot {} is not configured", task.account_slot))?;
-    let workspace = config.resolve(&account.workspace);
-    let account_context = load_account_context(&workspace, account).await?;
+    let workspace = account.workspace.clone();
+    let account_context = account.context.clone();
     let skill_path = config.resolve(Path::new("../skills/x-content-operator/SKILL.md"));
     let skill = read_bounded(&skill_path).await?;
 
     let mut writer_output: WriterOutput = run_json_agent(
         config,
         &config.writer,
-        &writer_prompt(task, account, &account_context, &skill, None)?,
+        &writer_prompt(task, &account, &account_context, &skill, None)?,
         &workspace,
     )
     .await
@@ -130,7 +134,7 @@ async fn process_claimed_task(config: &Config, task: &WorkerTask) -> Result<Proc
         writer_output = run_json_agent(
             config,
             &config.writer,
-            &writer_prompt(task, account, &account_context, &skill, Some(&validation))?,
+            &writer_prompt(task, &account, &account_context, &skill, Some(&validation))?,
             &workspace,
         )
         .await
@@ -139,12 +143,13 @@ async fn process_claimed_task(config: &Config, task: &WorkerTask) -> Result<Proc
     }
 
     let candidate = writer_output.recommended()?;
-    let configured_publication_mode = publication_mode(task, account);
+    let configured_publication_mode = publication_mode(task, &account);
     let audit = json!({
         "writer": writer_output,
         "validation": validation,
         "worker_id": config.worker.id,
         "account_slot": task.account_slot,
+        "account_source": account.source,
         "publication_mode": configured_publication_mode,
     });
 
@@ -219,7 +224,7 @@ Return only JSON matching the configured schema. Use pass only when the candidat
 
 fn writer_prompt(
     task: &WorkerTask,
-    account: &AccountConfig,
+    account: &EffectiveAccount,
     account_context: &str,
     skill: &str,
     revision: Option<&ValidatorOutput>,
@@ -312,7 +317,10 @@ fn reply_target(details: Option<&str>) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn publication_mode(task: &WorkerTask, account: &AccountConfig) -> PublicationMode {
+fn publication_mode(task: &WorkerTask, account: &EffectiveAccount) -> PublicationMode {
+    if account.paused {
+        return PublicationMode::Draft;
+    }
     if task.task_type != "reply" {
         return account.post_mode;
     }
@@ -343,13 +351,19 @@ mod tests {
 
     #[test]
     fn chooses_inbound_and_outbound_reply_modes() {
-        let account = AccountConfig {
-            workspace: "slot".into(),
+        let mut account = EffectiveAccount {
+            slot: 1,
             language: "en".into(),
             post_mode: PublicationMode::Auto,
             inbound_reply_mode: PublicationMode::Auto,
             outbound_reply_mode: PublicationMode::Approval,
             posts_per_day: 0,
+            plan_hour: 9,
+            plan_timezone: "UTC".into(),
+            paused: false,
+            context: String::new(),
+            workspace: std::path::PathBuf::from("."),
+            source: "files",
         };
         let mut task = WorkerTask {
             id: 1,
@@ -365,5 +379,9 @@ mod tests {
         assert_eq!(publication_mode(&task, &account), PublicationMode::Auto);
         task.details = Some(r#"{"reply_kind":"outbound"}"#.into());
         assert_eq!(publication_mode(&task, &account), PublicationMode::Approval);
+
+        account.paused = true;
+        task.task_type = "post".into();
+        assert_eq!(publication_mode(&task, &account), PublicationMode::Draft);
     }
 }

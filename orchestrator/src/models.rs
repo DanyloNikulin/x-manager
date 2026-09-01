@@ -1,5 +1,38 @@
 use serde::{Deserialize, Serialize};
 
+use crate::config::PublicationMode;
+
+/// Per-account brief and switches as served by `/api/agent/accounts/:slot`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountProfile {
+    pub slot: u8,
+    pub status: String,
+    pub language: String,
+    #[serde(default)]
+    pub profile: String,
+    #[serde(default)]
+    pub voice: String,
+    #[serde(default)]
+    pub strategy: String,
+    #[serde(default)]
+    pub memory: String,
+    pub post_mode: PublicationMode,
+    pub inbound_reply_mode: PublicationMode,
+    pub outbound_reply_mode: PublicationMode,
+    pub posts_per_day: u32,
+    pub plan_hour: u32,
+    pub plan_timezone: String,
+    /// False when the API answered with defaults because no row exists yet.
+    #[serde(default)]
+    pub stored: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AccountProfileEnvelope {
+    pub profile: AccountProfile,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkerTask {

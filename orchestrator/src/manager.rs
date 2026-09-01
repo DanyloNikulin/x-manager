@@ -6,8 +6,8 @@ use serde_json::Value;
 use crate::{
     config::PublicationMode,
     models::{
-        CampaignEnvelope, CampaignList, CampaignTask, CampaignTaskList, RecentPost,
-        RecentPostList, TaskList, WorkerTask,
+        AccountProfile, AccountProfileEnvelope, CampaignEnvelope, CampaignList, CampaignTask,
+        CampaignTaskList, RecentPost, RecentPostList, TaskList, WorkerTask,
     },
 };
 
@@ -202,6 +202,29 @@ impl ManagerClient {
             },
         )
         .await
+    }
+
+    /// The account's stored brief and switches, or `None` when X-Manager has no row for the
+    /// slot yet (or predates the endpoint), in which case the caller falls back to TOML + files.
+    pub async fn account_profile(&self, slot: u8) -> Result<Option<AccountProfile>> {
+        let response = self
+            .request(
+                self.client
+                    .get(format!("{}/api/agent/accounts/{slot}", self.base_url)),
+            )
+            .send()
+            .await
+            .context("account profile request failed")?;
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        let envelope = response
+            .error_for_status()
+            .context("account profile request was rejected")?
+            .json::<AccountProfileEnvelope>()
+            .await
+            .context("invalid account profile")?;
+        Ok(envelope.profile.stored.then_some(envelope.profile))
     }
 
     /// Returns the id of the active campaign with this name for the slot, creating it if needed.

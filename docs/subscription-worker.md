@@ -60,6 +60,16 @@ For defense in depth, an auto reply is scheduled only when its target tweet alre
 
 Each pass claims at most two tasks by default. Each task gets at most one writer revision after validator feedback.
 
+## Account profiles (brief and switches in X-Manager)
+
+The brief (`profile`, `voice`, `strategy`, `memory`) and the autopilot switches (`post_mode`, reply modes, `posts_per_day`, `plan_hour`, `plan_timezone`, `language`, `status`) live in X-Manager's `account_profiles` table, one row per slot, and are served by:
+
+- `GET /api/agent/accounts` — all slots with connection state,
+- `GET/PUT /api/agent/accounts/:slot` — read or partially update one slot (validated: modes, 0–5 posts per day, hour 0–23, IANA timezone),
+- `POST /api/agent/accounts/:slot/import` — one-time seed from the legacy `accounts/slot-N/*.md` files on the host.
+
+The worker resolves each slot through `orchestrator/src/accounts.rs`: a stored profile with status `ready` or `paused` wins; otherwise the legacy `[accounts.N]` TOML block plus the workspace files are used, so the web app and the worker can be upgraded in either order. `paused` means the planner skips the slot and the worker never auto-publishes for it. Audits record which source was used (`account_source`). TOML `[accounts.N]` blocks are optional once profiles exist; `workspace` there is still honoured as the CLI working directory.
+
 ## Daily planner
 
 Nothing has to create tasks by hand. When an account sets `posts_per_day` (1–5) and the config has a `[planner]` section, every `run-once` pass first runs the planner (`orchestrator/src/planner.rs`), then the worker picks up whatever it queued:

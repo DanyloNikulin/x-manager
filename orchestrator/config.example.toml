@@ -57,6 +57,9 @@ args = [
 schema_path = "schemas/planner-output.schema.json"
 timeout_seconds = 600
 
+# [accounts.N] blocks are the legacy/fallback source. Once a slot has a profile stored in
+# X-Manager (Account console, /api/agent/accounts/:slot) the brief and switches come from there
+# and only `workspace` (the CLI working directory) is still used from this file.
 [accounts.1]
 workspace = "../accounts/slot-1"
 language = "en"

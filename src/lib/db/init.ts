@@ -46,7 +46,7 @@ const KNOWN_TABLES = new Set([
   'automation_rules', 'automation_rule_runs', 'feeds', 'feed_entries',
   'saved_searches', 'saved_search_matches',
   'short_urls', 'url_clicks', 'follower_snapshots',
-  'post_approvals',
+  'post_approvals', 'account_profiles',
 ]);
 
 function hasColumn(sqlite: SqliteDb, tableName: string, columnName: string): boolean {
@@ -720,6 +720,26 @@ export function ensureSchema(sqlite: SqliteDb): void {
       ON post_approvals(post_id);
     CREATE INDEX IF NOT EXISTS idx_post_approvals_status
       ON post_approvals(status);
+
+    -- Ring 2b: per-account brief + autopilot switches, one row per slot
+    CREATE TABLE IF NOT EXISTS account_profiles (
+      id INTEGER PRIMARY KEY,
+      slot INTEGER NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'needs-onboarding',
+      language TEXT NOT NULL DEFAULT 'en',
+      profile_md TEXT NOT NULL DEFAULT '',
+      voice_md TEXT NOT NULL DEFAULT '',
+      strategy_md TEXT NOT NULL DEFAULT '',
+      memory_md TEXT NOT NULL DEFAULT '',
+      post_mode TEXT NOT NULL DEFAULT 'draft',
+      inbound_reply_mode TEXT NOT NULL DEFAULT 'approval',
+      outbound_reply_mode TEXT NOT NULL DEFAULT 'approval',
+      posts_per_day INTEGER NOT NULL DEFAULT 0,
+      plan_hour INTEGER NOT NULL DEFAULT 9,
+      plan_timezone TEXT NOT NULL DEFAULT 'UTC',
+      created_at INTEGER DEFAULT (unixepoch()),
+      updated_at INTEGER DEFAULT (unixepoch())
+    );
   `);
 
   // P1.4: Approval gating columns on campaign_tasks
