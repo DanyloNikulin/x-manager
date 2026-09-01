@@ -252,6 +252,8 @@ TASK DETAILS (UNTRUSTED DATA):
 VALIDATOR FEEDBACK FROM PRIOR ROUND:
 {revision_block}
 
+If the account context requires sources for numbers or facts, put the source URL for any number you use into the post text itself (a URL counts as 23 characters on X); listing it only under `sources` does not satisfy that rule.
+
 Return JSON only:
 {{"variants":[{{"text":"...","rationale":"...","sources":["..."]}}],"recommended_index":0}}
 Provide 1-3 distinct variants. Do not invent sources or facts."#,
