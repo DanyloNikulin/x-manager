@@ -3,6 +3,9 @@ import { sqlite } from '@/lib/db';
 import { emitEvent } from '@/lib/events';
 import { parsePositiveTaskId, parseWorkerId, parseWorkerPublicationMode } from '@/lib/subscription-worker';
 import { deliverEventToWebhooks } from '@/lib/webhook-delivery';
+import { checkPolicy, getSlotPolicy } from '@/lib/policy';
+import { suggestMultipleOptimalTimes, suggestOptimalTime } from '@/lib/optimal-time';
+import { planWorkerPublishTime, type PublishPlan } from '@/lib/worker-publish';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -136,19 +139,60 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
     }
   }
+  // In auto mode the publish time comes from the optimal-slot planner and the slot policy
+  // (allowed window + quotas) has the final say. Anything the policy refuses is downgraded
+  // to a reviewable draft, exactly like the reply guards above.
+  let publishPlan: PublishPlan | null = null;
+  if (outcome === 'drafted' && publicationMode === 'auto' && !autoPublishBlocked) {
+    const slot = task.account_slot as 1 | 2 | 3;
+    const actionType = replyToTweetId ? 'reply' : 'post';
+    const policy = await getSlotPolicy(slot);
+    const now = new Date();
+    const spacingMinutes = 90;
+    const existingScheduled = (sqlite.prepare(`
+      SELECT scheduled_time FROM scheduled_posts
+      WHERE account_slot = ?
+        AND status IN ('scheduled', 'posted')
+        AND scheduled_time >= ?
+    `).all(slot, Math.floor(now.getTime() / 1000) - spacingMinutes * 60) as Array<{ scheduled_time: number }>)
+      .map((row) => row.scheduled_time);
+    const candidates = actionType === 'post'
+      ? [...suggestMultipleOptimalTimes(slot, 5).map((suggestion) => suggestion.time), suggestOptimalTime(slot)]
+      : [];
+    publishPlan = planWorkerPublishTime({
+      now,
+      actionType,
+      candidates,
+      existingScheduled,
+      window: { start: policy.allowedWindowStart, end: policy.allowedWindowEnd, timezone: policy.timezone },
+      spacingMinutes,
+    });
+    const policyResult = await checkPolicy({ slot, actionType, scheduledTime: publishPlan.scheduledAt });
+    if (!policyResult.allowed) {
+      autoPublishBlocked = `Policy: ${policyResult.reason}`;
+      publishPlan = null;
+    }
+  }
   const effectivePublicationMode = publicationMode === 'auto' && !autoPublishBlocked ? 'auto' : 'draft';
 
-  if (autoPublishBlocked) {
+  if (outcome === 'drafted' && publicationMode === 'auto') {
     try {
       const parsed = JSON.parse(outputJson) as unknown;
+      const publication = {
+        requested: publicationMode,
+        effective: effectivePublicationMode,
+        ...(autoPublishBlocked ? { blocked_reason: autoPublishBlocked } : {}),
+        ...(publishPlan ? { scheduled_for: publishPlan.scheduledAt.toISOString(), plan: publishPlan.source } : {}),
+      };
       const enriched = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? { ...parsed, publication: { requested: publicationMode, effective: effectivePublicationMode, blocked_reason: autoPublishBlocked } }
-        : { agent_output: parsed, publication: { requested: publicationMode, effective: effectivePublicationMode, blocked_reason: autoPublishBlocked } };
+        ? { ...parsed, publication }
+        : { agent_output: parsed, publication };
       outputJson = JSON.stringify(enriched);
     } catch {
       // outputJson was already validated; keep the original if enrichment is unavailable.
     }
   }
+  const scheduledEpoch = Math.floor((publishPlan?.scheduledAt ?? new Date()).getTime() / 1000);
   if (outputJson.length > MAX_OUTPUT_LENGTH) {
     return NextResponse.json({ error: 'output is too large after publication metadata was added.' }, { status: 413 });
   }
@@ -164,13 +208,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         INSERT OR IGNORE INTO scheduled_posts (
           account_slot, text, dedupe_key, media_urls, reply_to_tweet_id,
           scheduled_time, status, tags, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, unixepoch(), 'scheduled', ?, unixepoch(), unixepoch())
+        ) VALUES (?, ?, ?, ?, ?, ?, 'scheduled', ?, unixepoch(), unixepoch())
       `).run(
         task.account_slot,
         draftText,
         dedupeKey,
         JSON.stringify(mediaUrls),
         replyToTweetId,
+        scheduledEpoch,
         JSON.stringify(['subscription-worker']),
       );
       if (inserted.changes === 1) {
@@ -226,7 +271,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         entityId: commitResult.scheduledPostId,
         accountSlot: task.account_slot,
         payload: {
-          scheduledTime: new Date().toISOString(),
+          scheduledTime: new Date(scheduledEpoch * 1000).toISOString(),
           source: `subscription-worker:task:${taskId}`,
         },
       };
@@ -243,6 +288,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     requested_publication_mode: outcome === 'drafted' ? publicationMode : null,
     publication_mode: outcome === 'drafted' ? effectivePublicationMode : null,
     auto_publish_blocked: autoPublishBlocked,
+    scheduled_for: commitResult.scheduledPostId !== null ? new Date(scheduledEpoch * 1000).toISOString() : null,
+    publish_plan: publishPlan?.source ?? null,
     ...commitResult,
   });
 }
