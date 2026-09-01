@@ -27,6 +27,9 @@ pub struct TaskList {
 pub struct PlannerOutput {
     #[serde(default)]
     pub tasks: Vec<PlannedTask>,
+    /// What the planner searched and rejected; recorded in the daily marker task.
+    #[serde(default)]
+    pub notes: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

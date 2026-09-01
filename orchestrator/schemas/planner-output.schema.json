@@ -2,8 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["tasks"],
+  "required": ["tasks", "notes"],
   "properties": {
+    "notes": { "type": "string", "maxLength": 2000 },
     "tasks": {
       "type": "array",
       "maxItems": 5,

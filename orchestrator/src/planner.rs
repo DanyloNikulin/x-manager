@@ -112,6 +112,7 @@ pub async fn plan_day(config: &Config, manager: &ManagerClient) -> Result<usize>
                     "planned": output.tasks.len(),
                     "created": created,
                     "tasks": summary,
+                    "notes": output.notes,
                 });
                 manager
                     .create_task(
@@ -224,12 +225,14 @@ RECENT POSTS OF THIS ACCOUNT (do not repeat their topics or angles):
 
 TODAY: {day} ({timezone})
 LANGUAGE: {language}
-BUDGET: at most {budget} task(s) today. Fewer is fine; an empty list is the right answer when nothing meets the bar set by the strategy above.
+BUDGET: at most {budget} task(s) today.
 
-For each task give: topic; angle (the account's specific take in its register, one or two sentences); pillar (which strategy pillar it serves); source_notes (1-3 entries: a URL you actually opened plus the concrete facts and numbers from that page that the writer may use). Prefer material published in the last 7 days. Never invent numbers and never cite a page you did not open. Skip anything the strategy marks as needing operator review.
+Work order: first run at least two web searches across the strategy pillars for material published in the last 7 days, open the most promising pages, then decide. Aim to fill the budget with the strongest sourced angle you found; return an empty list only when, after searching, nothing genuinely fits the account. Do not skip the search.
+
+For each task give: topic; angle (the account's specific take in its register, one or two sentences); pillar (which strategy pillar it serves); source_notes (1-3 entries: a URL you actually opened plus the concrete facts and numbers from that page that the writer may use). Never invent numbers and never cite a page you did not open. Skip anything the strategy marks as needing operator review. In notes, say what you searched, what you rejected and why (two or three sentences).
 
 Return JSON only matching the configured schema:
-{{"tasks":[{{"topic":"...","angle":"...","pillar":"...","source_notes":[{{"url":"...","note":"..."}}]}}]}}"#,
+{{"tasks":[{{"topic":"...","angle":"...","pillar":"...","source_notes":[{{"url":"...","note":"..."}}]}}],"notes":"..."}}"#,
         language = account.language,
     )
 }
