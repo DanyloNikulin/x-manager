@@ -1,5 +1,5 @@
 import { eq, and, asc, lte, inArray } from 'drizzle-orm';
-import { db, sqlite } from './db';
+import { db } from './db';
 import {
   campaignTasks,
   campaigns,
@@ -8,6 +8,7 @@ import {
 import { executeXAction } from './execute-x-action';
 import { normalizeAccountSlot } from './account-slots';
 import { validateTweetUrls } from './tweet-url-validator';
+import { completeRun, completeStep, insertRun, insertStep } from './agent-run-ledger';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,10 +48,6 @@ export type ExecuteCampaignResult = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function nowTimestamp(): number {
-  return Math.floor(Date.now() / 1000);
-}
-
 function parseDetailsJson(details: string | null): Record<string, unknown> {
   if (!details) return {};
   try {
@@ -61,60 +58,6 @@ function parseDetailsJson(details: string | null): Record<string, unknown> {
   } catch {
     return { raw: details };
   }
-}
-
-/** Insert an agent_runs row and return its id via lastInsertRowid. */
-function insertRun(params: {
-  campaignId: number | null;
-  dryRun: boolean;
-  requestedBy: string | null;
-  inputJson: string | null;
-}): number {
-  const now = nowTimestamp();
-  const stmt = sqlite.prepare(`
-    INSERT INTO agent_runs (campaign_id, status, dry_run, requested_by, input_json, started_at, created_at, updated_at)
-    VALUES (?, 'running', ?, ?, ?, ?, ?, ?)
-  `);
-  const info = stmt.run(
-    params.campaignId,
-    params.dryRun ? 1 : 0,
-    params.requestedBy,
-    params.inputJson,
-    now,
-    now,
-    now,
-  );
-  return Number(info.lastInsertRowid);
-}
-
-/** Insert an agent_run_steps row and return its id. */
-function insertStep(params: {
-  runId: number;
-  taskId: number | null;
-  stepType: string;
-  inputJson: string | null;
-}): number {
-  const now = nowTimestamp();
-  const stmt = sqlite.prepare(`
-    INSERT INTO agent_run_steps (run_id, task_id, step_type, status, input_json, started_at, created_at)
-    VALUES (?, ?, ?, 'running', ?, ?, ?)
-  `);
-  const info = stmt.run(params.runId, params.taskId, params.stepType, params.inputJson, now, now);
-  return Number(info.lastInsertRowid);
-}
-
-function completeStep(stepId: number, status: 'completed' | 'failed' | 'skipped', output: unknown, error?: string): void {
-  const now = nowTimestamp();
-  sqlite
-    .prepare(`UPDATE agent_run_steps SET status = ?, output_json = ?, error = ?, finished_at = ? WHERE id = ?`)
-    .run(status, output !== undefined ? JSON.stringify(output) : null, error ?? null, now, stepId);
-}
-
-function completeRun(runId: number, status: 'completed' | 'failed' | 'cancelled', outputJson: unknown, error?: string): void {
-  const now = nowTimestamp();
-  sqlite
-    .prepare(`UPDATE agent_runs SET status = ?, output_json = ?, error = ?, finished_at = ?, updated_at = ? WHERE id = ?`)
-    .run(status, outputJson !== undefined ? JSON.stringify(outputJson) : null, error ?? null, now, now, runId);
 }
 
 // ---------------------------------------------------------------------------
