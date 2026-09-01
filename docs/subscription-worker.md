@@ -46,6 +46,8 @@ Each account config has three publication controls:
 
 Allowed values are `auto`, `approval`, and `draft`. Auto mode never gives the model X credentials: the validated result is inserted into X-Manager's existing scheduler, which performs the official X API call. Validator failures and blocks cannot auto-publish.
 
+Auto mode does not publish immediately. When X-Manager accepts a drafted result it plans the publish time (`src/lib/worker-publish.ts`): posts take the best-ranked optimal slot (`/api/scheduler/suggest-time` data) that lies inside the slot policy window and at least 90 minutes away from any other scheduled or recently published post of that account; replies go out on the next scheduler tick unless the window is closed, in which case they wait for it to open. The slot policy (`GET/PUT /api/agent/policy`) then has the final say: if the planned time violates the window or a daily/hourly quota, the content is stored as a reviewable draft instead. The planned time and the reason (`optimal-slot`, `next-open-slot`, `reply-immediate`) are recorded under `publication` in the task output and returned as `scheduled_for` / `publish_plan` by `POST /api/agent/tasks/:id/result`.
+
 For defense in depth, an auto reply is scheduled only when its target tweet already exists as an inbound mention for the same account in `engagement_inbox`. Merely setting `reply_kind: inbound` cannot bypass this check; unverifiable replies are downgraded to reviewable drafts.
 
 ## Local setup
