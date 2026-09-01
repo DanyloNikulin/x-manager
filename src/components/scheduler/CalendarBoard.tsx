@@ -1,0 +1,586 @@
+'use client';
+
+import type { ReactNode } from 'react';
+import { Edit, Trash2, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import type { CalendarViewMode, CommunityTag, QueueItem, ScheduledPost } from './types';
+import { formatDateForDisplay, formatTimeForDisplay, generateWeekDays, getMonthDays } from './datetime';
+import { getMediaCount, getStatusColor, getStatusIcon } from './status';
+
+interface CalendarBoardProps {
+  compact: boolean;
+  viewMode: CalendarViewMode;
+  setViewMode: (mode: CalendarViewMode) => void;
+  currentDate: Date;
+  setCurrentDate: (date: Date) => void;
+  currentWeek: Date;
+  scheduledPosts: ScheduledPost[];
+  visibleSlots: number[];
+  communityTags: CommunityTag[];
+  queueItems: QueueItem[];
+  searchQuery: string;
+  setSearchQuery: (value: string) => void;
+  statusFilter: string;
+  setStatusFilter: (value: string) => void;
+  bulkMode: boolean;
+  setBulkMode: (value: boolean) => void;
+  selectedPostIds: Set<string>;
+  setSelectedPostIds: (ids: Set<string>) => void;
+  handleBulkAction: (action: string) => void;
+  navigatePrev: () => void;
+  navigateToday: () => void;
+  navigateNext: () => void;
+  handleCreatePost: (date?: Date) => void;
+  handleEditPost: (post: ScheduledPost) => void;
+  handleDeletePost: (postId: string) => void;
+  handleDragStart: (postId: string) => void;
+  handleDragOver: (e: React.DragEvent) => void;
+  handleDropOnDate: (targetDate: Date, targetHour?: number) => void;
+  children?: ReactNode;
+}
+
+export function CalendarBoard({
+  compact,
+  viewMode,
+  setViewMode,
+  currentDate,
+  setCurrentDate,
+  currentWeek,
+  scheduledPosts,
+  visibleSlots,
+  communityTags,
+  queueItems,
+  searchQuery,
+  setSearchQuery,
+  statusFilter,
+  setStatusFilter,
+  bulkMode,
+  setBulkMode,
+  selectedPostIds,
+  setSelectedPostIds,
+  handleBulkAction,
+  navigatePrev,
+  navigateToday,
+  navigateNext,
+  handleCreatePost,
+  handleEditPost,
+  handleDeletePost,
+  handleDragStart,
+  handleDragOver,
+  handleDropOnDate,
+  children,
+}: CalendarBoardProps) {
+  const weekDays = generateWeekDays(currentWeek);
+
+  const getPostsForDate = (date: Date) => {
+    const dateString = date.toDateString();
+    const postsForDate = scheduledPosts.filter(post => {
+      const postDate = new Date(post.scheduledTime);
+      // Filter by date AND visible slots
+      return postDate.toDateString() === dateString && visibleSlots.includes(post.accountSlot || 1);
+    });
+    
+    // Sort by time (earliest to latest) and limit to 17 posts
+    return postsForDate
+      .sort((a, b) => new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime())
+      .slice(0, 17);
+  };
+
+  const getHourSlots = () => {
+    return Array.from({ length: 24 }, (_, h) => h);
+  };
+
+  const getPostsForHour = (date: Date, hour: number) => {
+    return scheduledPosts.filter((post) => {
+      const postDate = new Date(post.scheduledTime);
+      return (
+        postDate.toDateString() === date.toDateString() &&
+        postDate.getHours() === hour &&
+        visibleSlots.includes(post.accountSlot || 1)
+      );
+    });
+  };
+
+  return (
+    <>
+      {/* Search and Filter Bar */}
+      {!compact && (
+        <div className="dashboard-card p-4 mb-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex-1 min-w-[200px]">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search posts..."
+                className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100"
+              />
+            </div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100"
+            >
+              <option value="">All statuses</option>
+              <option value="scheduled">Scheduled</option>
+              <option value="posted">Posted</option>
+              <option value="failed">Failed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <button
+              onClick={() => { setBulkMode(!bulkMode); setSelectedPostIds(new Set()); }}
+              className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                bulkMode ? 'bg-slate-900 text-white' : 'bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              {bulkMode ? 'Cancel Bulk' : 'Bulk Select'}
+            </button>
+            {bulkMode && selectedPostIds.size > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600 dark:text-slate-300">{selectedPostIds.size} selected</span>
+                <button onClick={() => handleBulkAction('cancel')} className="px-3 py-1.5 bg-yellow-100 text-yellow-800 rounded-lg text-xs font-medium hover:bg-yellow-200">Cancel</button>
+                <button onClick={() => handleBulkAction('delete')} className="px-3 py-1.5 bg-red-100 text-red-800 rounded-lg text-xs font-medium hover:bg-red-200">Delete</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Calendar View */}
+      <div className={compact ? "overflow-hidden" : "dashboard-card overflow-hidden"}>
+        {/* Calendar Header */}
+        {!compact && (
+        <div className="bg-gray-50 dark:bg-slate-900 px-4 sm:px-6 py-4 border-b border-gray-200 dark:border-slate-700">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-slate-100">
+              {viewMode === 'day' && currentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              {viewMode === 'week' && `Week of ${formatDateForDisplay(weekDays[0])}`}
+              {viewMode === 'month' && currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+              {viewMode === 'queue' && `Content Queue (${queueItems.length} items)`}
+            </h3>
+            <div className="flex items-center gap-3">
+              {/* View mode toggle */}
+              <div className="flex bg-white dark:bg-slate-800 border border-slate-200 rounded-lg p-0.5">
+                {(['day', 'week', 'month', 'queue'] as CalendarViewMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setViewMode(mode)}
+                    className={`px-3 py-1 text-xs font-medium rounded-md transition-all capitalize ${
+                      viewMode === mode
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    {mode === 'queue' ? 'Queue' : mode}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center space-x-1">
+                <button onClick={navigatePrev} className="p-2 text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-slate-100 hover:bg-gray-200 dark:hover:bg-slate-600 rounded-md transition-colors">
+                  <ChevronLeft size={16} />
+                </button>
+                <button onClick={navigateToday} className="px-3 py-1 text-sm text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-slate-100 hover:bg-gray-200 dark:hover:bg-slate-600 rounded-md transition-colors">
+                  Today
+                </button>
+                <button onClick={navigateNext} className="p-2 text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-slate-100 hover:bg-gray-200 dark:hover:bg-slate-600 rounded-md transition-colors">
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        )}
+
+        {/* Compact Stream View */}
+        {compact && (
+           <div className="space-y-0 divide-y divide-slate-100">
+             {scheduledPosts.filter(p => p.status === 'scheduled').length === 0 ? (
+                <div className="p-8 text-center text-slate-500">
+                  <p className="text-sm">No upcoming posts.</p>
+                </div>
+             ) : (
+                scheduledPosts
+                  .filter(p => p.status === 'scheduled')
+                  .sort((a, b) => new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime())
+                  .map(post => (
+                    <div key={post.id} className="p-3 hover:bg-slate-50 transition-colors group relative">
+                       <div className="flex justify-between items-start mb-1">
+                          <span className="text-xs font-semibold text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded">
+                            {new Date(post.scheduledTime).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} • {formatTimeForDisplay(post.scheduledTime)}
+                          </span>
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                             <button onClick={() => handleEditPost(post)} className="text-slate-400 hover:text-blue-600"><Edit size={12}/></button>
+                             <button onClick={() => handleDeletePost(post.id)} className="text-slate-400 hover:text-red-600"><Trash2 size={12}/></button>
+                          </div>
+                       </div>
+                       <p className="text-sm text-slate-800 line-clamp-3 mb-2 whitespace-pre-wrap">{post.text}</p>
+                       <div className="flex items-center gap-2 text-xs text-slate-400">
+                          <span>Slot {post.accountSlot || 1}</span>
+                          {getMediaCount(post) > 0 && <span>• 📎 {getMediaCount(post)}</span>}
+                          {post.replyToTweetId && <span className="text-cyan-600">• Reply</span>}
+                       </div>
+                    </div>
+                  ))
+             )}
+           </div>
+        )}
+
+        {/* Calendar Grid - Mobile: Single column, Desktop: 7 columns */}
+        {!compact && (
+        <div className="block sm:hidden">
+          {/* Mobile View - Stack days vertically */}
+          <div className="divide-y divide-gray-200 dark:divide-slate-700">
+            {weekDays.map((day, index) => {
+              const dayPosts = getPostsForDate(day);
+              const isToday = day.toDateString() === new Date().toDateString();
+              
+              return (
+                <div
+                  key={index}
+                  className={`p-4 ${isToday ? 'bg-blue-50 dark:bg-blue-900/20' : 'bg-white dark:bg-slate-800'}`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div className={`text-base font-medium ${
+                      isToday ? 'text-blue-600' : 'text-gray-900 dark:text-slate-100'
+                    }`}>
+                      {day.toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        month: 'long',
+                        day: 'numeric'
+                      })}
+                    </div>
+                    <button
+                      onClick={() => handleCreatePost(day)}
+                      className="p-2 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded transition-colors"
+                      title="Add post"
+                    >
+                      <Plus size={18} />
+                    </button>
+                  </div>
+                  
+                  {/* Posts for this day */}
+                  {dayPosts.length > 0 ? (
+                    <div className="space-y-2">
+                      {dayPosts.map((post) => (
+                        <div
+                          key={post.id}
+                          className="group relative p-3 bg-gray-50 dark:bg-slate-900 rounded-lg border hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-medium text-gray-700 dark:text-slate-200 text-sm">
+                              {formatTimeForDisplay(post.scheduledTime)}
+                            </span>
+                            <div className="flex items-center space-x-1">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEditPost(post);
+                                }}
+                                className="p-1 text-gray-400 dark:text-slate-500 hover:text-blue-600 transition-colors"
+                                title="Edit"
+                              >
+                                <Edit size={14} />
+                              </button>
+                                                          <button
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleDeletePost(post.id);
+                              }}
+                              className="p-1 text-gray-400 dark:text-slate-500 hover:text-red-600 transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                            </div>
+                          </div>
+                          
+                          <div className="text-gray-600 dark:text-slate-300 mb-2 text-sm leading-relaxed">
+                            {post.text.length > 80 ? `${post.text.slice(0, 80)}...` : post.text}
+                          </div>
+                          
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <div className={`inline-flex items-center space-x-1 px-2 py-1 rounded-full text-xs ${getStatusColor(post.status)}`}>
+                                {getStatusIcon(post.status)}
+                                <span className="capitalize">{post.status}</span>
+                              </div>
+                              <div className="text-xs text-indigo-700 bg-indigo-50 px-2 py-1 rounded-full">
+                                Account #{post.accountSlot || 1}
+                              </div>
+                              {post.communityId && (
+                                <div className="text-xs text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded-full">
+                                  {communityTags.find(tag => tag.communityId === post.communityId)?.tagName || 'Community'}
+                                </div>
+                              )}
+                              {post.replyToTweetId && (
+                                <div className="text-xs text-cyan-700 bg-cyan-50 px-2 py-1 rounded-full">
+                                  Reply
+                                </div>
+                              )}
+                            </div>
+                            {getMediaCount(post) > 0 && (
+                              <div className="text-gray-400 dark:text-slate-500 text-xs">
+                                📎 {getMediaCount(post)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-4 text-gray-500 dark:text-slate-400 text-sm">
+                      No posts scheduled
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        )}
+
+        {/* Day View */}
+        {!compact && viewMode === 'day' && (
+          <div className="hidden sm:block">
+            <div className="divide-y divide-gray-200 dark:divide-slate-700">
+              {getHourSlots().map((hour) => {
+                const hourPosts = getPostsForHour(currentDate, hour);
+                return (
+                  <div
+                    key={hour}
+                    className="flex min-h-[48px] hover:bg-slate-50 transition-colors"
+                    onDragOver={handleDragOver}
+                    onDrop={() => handleDropOnDate(currentDate, hour)}
+                  >
+                    <div className="w-16 flex-shrink-0 py-2 px-3 text-xs text-slate-500 font-medium border-r border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900">
+                      {hour.toString().padStart(2, '0')}:00
+                    </div>
+                    <div className="flex-1 p-1 flex flex-wrap gap-1">
+                      {hourPosts.map((post) => (
+                        <div
+                          key={post.id}
+                          draggable={post.status === 'scheduled'}
+                          onDragStart={() => handleDragStart(String(post.id))}
+                          className={`group relative p-2 rounded border text-xs cursor-grab active:cursor-grabbing flex-1 min-w-[200px] max-w-[400px] ${
+                            (post.accountSlot || 1) === 1
+                              ? 'bg-indigo-50/50 border-indigo-100 hover:border-indigo-300'
+                              : 'bg-amber-50/50 border-amber-100 hover:border-amber-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-medium">{formatTimeForDisplay(post.scheduledTime)}</span>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => handleEditPost(post)} className="p-1 text-gray-400 dark:text-slate-500 hover:text-blue-600"><Edit size={12} /></button>
+                              <button onClick={() => handleDeletePost(post.id)} className="p-1 text-gray-400 dark:text-slate-500 hover:text-red-600"><Trash2 size={12} /></button>
+                            </div>
+                          </div>
+                          <p className="text-gray-600 dark:text-slate-300 line-clamp-2">{post.text}</p>
+                          <div className="flex items-center gap-1 mt-1">
+                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] ${getStatusColor(post.status)}`}>
+                              {getStatusIcon(post.status)} {post.status}
+                            </span>
+                            <span className="text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-full text-[10px]">#{post.accountSlot || 1}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Month View */}
+        {!compact && viewMode === 'month' && (
+          <div className="hidden sm:block">
+            {/* Day headers */}
+            <div className="grid grid-cols-7 border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900">
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+                <div key={d} className="text-xs font-medium text-gray-600 dark:text-slate-300 text-center py-2">{d}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7">
+              {getMonthDays(currentDate).map((day, idx) => {
+                if (!day) {
+                  return <div key={`pad-${idx}`} className="min-h-[80px] border-r border-b border-gray-200 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-900/50" />;
+                }
+                const dayPosts = getPostsForDate(day);
+                const isToday = day.toDateString() === new Date().toDateString();
+                const isCurrentMonth = day.getMonth() === currentDate.getMonth();
+                return (
+                  <div
+                    key={day.toISOString()}
+                    className={`min-h-[80px] border-r border-b border-gray-200 dark:border-slate-700 p-1 ${isToday ? 'bg-blue-50 dark:bg-blue-900/20' : ''} ${!isCurrentMonth ? 'opacity-50' : ''}`}
+                    onDragOver={handleDragOver}
+                    onDrop={() => handleDropOnDate(day)}
+                    onClick={() => {
+                      setCurrentDate(day);
+                      setViewMode('day');
+                    }}
+                  >
+                    <div className={`text-xs font-medium mb-1 ${isToday ? 'text-blue-600' : 'text-gray-700 dark:text-slate-200'}`}>
+                      {day.getDate()}
+                    </div>
+                    {dayPosts.length > 0 && (
+                      <div className="flex flex-wrap gap-0.5">
+                        {dayPosts.slice(0, 3).map((post) => (
+                          <div
+                            key={post.id}
+                            draggable={post.status === 'scheduled'}
+                            onDragStart={(e) => {
+                              e.stopPropagation();
+                              handleDragStart(String(post.id));
+                            }}
+                            className={`w-full text-[10px] px-1 py-0.5 rounded truncate cursor-grab ${
+                              (post.accountSlot || 1) === 1
+                                ? 'bg-indigo-100 text-indigo-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                            title={post.text}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {formatTimeForDisplay(post.scheduledTime)} {post.text.slice(0, 20)}
+                          </div>
+                        ))}
+                        {dayPosts.length > 3 && (
+                          <span className="text-[10px] text-gray-500 dark:text-slate-400 px-1">+{dayPosts.length - 3} more</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Desktop View - 7 column grid (Week) */}
+        {!compact && viewMode === 'week' && (
+        <div className="hidden sm:block">
+          <div className="grid grid-cols-7 gap-0">
+            {weekDays.map((day, index) => {
+              const dayPosts = getPostsForDate(day);
+              const isToday = day.toDateString() === new Date().toDateString();
+              
+              return (
+                <div
+                  key={index}
+                  className={`min-h-32 border-r border-b border-gray-200 dark:border-slate-700 p-2 ${
+                    isToday ? 'bg-blue-50 dark:bg-blue-900/20' : 'bg-white dark:bg-slate-800'
+                  } last:border-r-0`}
+                  onDragOver={handleDragOver}
+                  onDrop={() => handleDropOnDate(day)}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={`text-sm font-medium ${
+                      isToday ? 'text-blue-600' : 'text-gray-900 dark:text-slate-100'
+                    }`}>
+                      {formatDateForDisplay(day)}
+                    </div>
+                    <button
+                      onClick={() => handleCreatePost(day)}
+                      className="p-1 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded transition-colors"
+                      title="Add post"
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </div>
+                  
+                  {/* Posts for this day */}
+                  <div className="space-y-1">
+                                          {dayPosts.map((post) => (
+                                          <div
+                                            key={post.id}
+                                            draggable={post.status === 'scheduled'}
+                                            onDragStart={() => handleDragStart(String(post.id))}
+                                            className={`group relative p-2 rounded border text-xs hover:shadow-md transition-all cursor-grab active:cursor-grabbing ${
+                                              (post.accountSlot || 1) === 1
+                                                ? 'bg-indigo-50/50 border-indigo-100 hover:border-indigo-300'
+                                                : 'bg-amber-50/50 border-amber-100 hover:border-amber-300'
+                                            }`}
+                                          >
+                                            <div className="flex items-center justify-between mb-1">
+                                              <span className={`font-medium ${
+                                                (post.accountSlot || 1) === 1 ? 'text-indigo-900' : 'text-amber-900'
+                                              }`}>
+                                                {formatTimeForDisplay(post.scheduledTime)}
+                                              </span>
+                                              <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEditPost(post);
+                              }}
+                              className="p-1 text-gray-400 dark:text-slate-500 hover:text-blue-600 transition-colors"
+                              title="Edit"
+                            >
+                              <Edit size={12} />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleDeletePost(post.id);
+                              }}
+                              className="p-1 text-gray-400 dark:text-slate-500 hover:text-red-600 transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <div className="text-gray-600 dark:text-slate-300 mb-1 line-clamp-2">
+                          {post.text.length > 50 ? `${post.text.slice(0, 50)}...` : post.text}
+                        </div>
+                        
+                        <div className="flex flex-col space-y-1">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1">
+                              <div className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-xs ${getStatusColor(post.status)}`}>
+                                {getStatusIcon(post.status)}
+                                <span className="capitalize">{post.status}</span>
+                              </div>
+                              <div className="text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full">
+                                #{post.accountSlot || 1}
+                              </div>
+                            </div>
+                            {getMediaCount(post) > 0 && (
+                              <div className="text-gray-400 dark:text-slate-500">
+                                📎 {getMediaCount(post)}
+                              </div>
+                            )}
+                          </div>
+                          {post.communityId && (
+                            <div className="text-xs text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded-full self-start">
+                              {communityTags.find(tag => tag.communityId === post.communityId)?.tagName || 'Community'}
+                            </div>
+                          )}
+                          {post.replyToTweetId && (
+                            <div className="text-xs text-cyan-700 bg-cyan-50 px-2 py-0.5 rounded-full self-start">
+                              Reply
+                            </div>
+                          )}
+                          {post.status === 'posted' && post.metrics && (
+                            <div className="flex items-center gap-2 mt-1 text-xs text-gray-500 dark:text-slate-400">
+                              <span title="Likes">♥ {post.metrics.likes}</span>
+                              <span title="Retweets">⟲ {post.metrics.retweets}</span>
+                              <span title="Impressions">👁 {post.metrics.impressions}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        )}
+
+        {children}
+      </div>
+    </>
+  );
+}

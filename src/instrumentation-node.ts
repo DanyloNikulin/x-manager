@@ -36,10 +36,19 @@ export function registerNodeInstrumentation(): void {
     log.error('Unhandled rejection', reason instanceof Error ? reason : undefined);
   });
 
-  void startWithRetry('Post scheduler', async () => {
-    const { startInAppScheduler } = await import('./lib/scheduler-runner');
-    startInAppScheduler();
-  });
+  if (process.env.DISABLE_IN_APP_SCHEDULER === 'true') {
+    log.info('In-app post scheduler disabled via DISABLE_IN_APP_SCHEDULER.');
+  } else {
+    void startWithRetry('Post scheduler', async () => {
+      const { startSchedulerLoop } = await import('./lib/scheduler-service');
+      const intervalSeconds = Math.max(10, Number(process.env.SCHEDULER_INTERVAL_SECONDS || 60));
+      startSchedulerLoop({
+        key: 'in-app',
+        intervalSeconds,
+        runOnStart: true,
+      });
+    });
+  }
 
   void startWithRetry('Action scheduler', async () => {
     const { startActionSchedulerLoop } = await import('./lib/action-scheduler');
@@ -54,24 +63,9 @@ export function registerNodeInstrumentation(): void {
   });
 
   void startWithRetry('Recurring processor', async () => {
-    const { processRecurringSchedules, isRecurringProcessorStarted, markRecurringProcessorStarted } = await import('./lib/recurring-processor');
-    if (isRecurringProcessorStarted()) {
-      log.info('Recurring processor already running, skipping.');
-      return;
-    }
-    markRecurringProcessorStarted();
-    const intervalMs = Math.max(60, Number(process.env.RECURRING_INTERVAL_SECONDS) || 300) * 1000;
-    setInterval(async () => {
-      try {
-        const result = await processRecurringSchedules();
-        if (result.created > 0) {
-          log.info(`Processed ${result.processed} recurring schedules, created ${result.created} posts.`);
-        }
-      } catch (error) {
-        log.error('Recurring processor cycle error', error instanceof Error ? error : undefined);
-      }
-    }, intervalMs);
-    log.info(`Recurring processor started (${intervalMs / 1000}s interval).`);
+    const { startRecurringProcessorLoop } = await import('./lib/recurring-processor');
+    const intervalSeconds = Math.max(60, Number(process.env.RECURRING_INTERVAL_SECONDS) || 300);
+    startRecurringProcessorLoop(intervalSeconds);
   });
 
   void startWithRetry('Follower tracker', async () => {

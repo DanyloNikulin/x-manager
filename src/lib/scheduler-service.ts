@@ -1,8 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
-import crypto from 'crypto';
 import { and, asc, eq, lte } from 'drizzle-orm';
-import { db, sqlite } from './db';
+import { db } from './db';
 import { scheduledPosts, xAccounts } from './db/schema';
 import { postTweet, uploadMedia } from './twitter-api-client';
 import { getResolvedXConfig, type ResolvedXConfig } from './x-config';
@@ -15,6 +14,9 @@ import { runScheduledAutomationRules } from './automation-executor';
 import { runFeedProcessor } from './feed-processor';
 import { runKeywordMonitor } from './keyword-monitor';
 import { logger, type Logger } from './logger';
+import { createOwnerId, withLease } from './scheduler-lock';
+import { startIntervalLoop } from './interval-loop';
+import { parseStringArray } from './json-array';
 
 type SchedulerLogger = Logger;
 
@@ -32,23 +34,13 @@ interface StartSchedulerLoopOptions {
   logger?: SchedulerLogger;
 }
 
-const runningLoops = new Map<string, NodeJS.Timeout>();
-const schedulerOwnerId = `${process.pid}-${crypto.randomUUID().slice(0, 8)}`;
+const schedulerOwnerId = createOwnerId();
 const schedulerLockKey = 'scheduler-cycle';
 
 const defaultLogger: SchedulerLogger = logger('scheduler');
 
 function parseMediaUrls(value: string | null): string[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) {
-      return parsed.filter((item) => typeof item === 'string');
-    }
-  } catch {
-    // Ignore malformed data and continue without media.
-  }
-  return [];
+  return parseStringArray(value);
 }
 
 function toPublicFilePath(mediaUrl: string): string {
@@ -143,31 +135,19 @@ function emitAndDeliver(
 export async function runSchedulerCycle(logger: SchedulerLogger = defaultLogger): Promise<SchedulerCycleResult> {
   const leaseSeconds = Math.max(30, Number(process.env.SCHEDULER_LOCK_LEASE_SECONDS || 90));
   const nowEpoch = Math.floor(Date.now() / 1000);
-  const leaseUntil = nowEpoch + leaseSeconds;
 
-  sqlite
-    .prepare(
-      `INSERT INTO scheduler_locks (lock_key, owner_id, lease_until, created_at, updated_at)
-       VALUES (?, ?, ?, unixepoch(), unixepoch())
-       ON CONFLICT(lock_key) DO NOTHING`,
-    )
-    .run(schedulerLockKey, schedulerOwnerId, leaseUntil);
-
-  const lockAcquireResult = sqlite
-    .prepare(
-      `UPDATE scheduler_locks
-       SET owner_id = ?, lease_until = ?, updated_at = unixepoch()
-       WHERE lock_key = ?
-         AND (lease_until < ? OR owner_id = ?)`,
-    )
-    .run(schedulerOwnerId, leaseUntil, schedulerLockKey, nowEpoch, schedulerOwnerId);
-
-  if (lockAcquireResult.changes === 0) {
-    logger.warn('Another scheduler instance owns the lease. Skipping this cycle.');
-    return { skipped: true, processed: 0, posted: 0, failed: 0 };
-  }
-
-  try {
+  return withLease(
+    {
+      lockKey: schedulerLockKey,
+      ownerId: schedulerOwnerId,
+      leaseSeconds,
+      onSkip: (): SchedulerCycleResult => {
+        logger.warn('Another scheduler instance owns the lease. Skipping this cycle.');
+        return { skipped: true, processed: 0, posted: 0, failed: 0 };
+      },
+    },
+    async ({ extend }) => {
+      try {
     const config = await getResolvedXConfig();
 
     try {
@@ -196,23 +176,14 @@ export async function runSchedulerCycle(logger: SchedulerLogger = defaultLogger)
 
     let posted = 0;
     let failed = 0;
-    let leaseStolen = false;
     const threadLatest = new Map<string, { index: number; twitterPostId: string }>();
 
     for (const post of duePosts) {
       // Extend lease periodically so long cycles don't lose the lock.
       const elapsed = Math.floor(Date.now() / 1000) - nowEpoch;
       if (elapsed > leaseSeconds * 0.5) {
-        const newLeaseUntil = Math.floor(Date.now() / 1000) + leaseSeconds;
-        const extended = sqlite
-          .prepare(
-            `UPDATE scheduler_locks SET lease_until = ?, updated_at = unixepoch()
-             WHERE lock_key = ? AND owner_id = ?`,
-          )
-          .run(newLeaseUntil, schedulerLockKey, schedulerOwnerId);
-        if (extended.changes === 0) {
+        if (!extend()) {
           logger.error('Scheduler lease stolen by another instance. Aborting cycle.');
-          leaseStolen = true;
           break;
         }
       }
@@ -327,65 +298,37 @@ export async function runSchedulerCycle(logger: SchedulerLogger = defaultLogger)
       posted,
       failed,
     };
-  } catch (error) {
-    markCycleError();
-    throw error;
-  } finally {
-    sqlite
-      .prepare(
-        `UPDATE scheduler_locks
-         SET lease_until = 0, updated_at = unixepoch()
-         WHERE lock_key = ? AND owner_id = ?`,
-      )
-      .run(schedulerLockKey, schedulerOwnerId);
-  }
+      } catch (error) {
+        markCycleError();
+        throw error;
+      }
+    },
+  );
 }
 
 export function startSchedulerLoop(options: StartSchedulerLoopOptions = {}): () => void {
   const key = options.key || 'default';
-  const logger = options.logger || defaultLogger;
+  const cycleLogger = options.logger || defaultLogger;
   const intervalSeconds = Math.max(10, Math.floor(options.intervalSeconds || 60));
   const runOnStart = options.runOnStart !== false;
 
-  if (runningLoops.has(key)) {
-    logger.info(`Loop "${key}" already active. Skipping duplicate start.`);
-    return () => {
-      const timer = runningLoops.get(key);
-      if (timer) {
-        clearInterval(timer);
-        runningLoops.delete(key);
-      }
-    };
-  }
-
-  if (runOnStart) {
-    void runSchedulerCycle(logger).then((result) => {
+  const stop = startIntervalLoop({
+    key,
+    intervalSeconds,
+    runOnStart,
+    run: async () => {
+      const result = await runSchedulerCycle(cycleLogger);
       if (result.processed > 0) {
-        logger.info(`Initial cycle processed ${result.processed} posts.`);
+        cycleLogger.info(`Cycle processed ${result.processed} posts.`);
       }
-    }).catch((error) => {
-      logger.error('Initial scheduler cycle failed:', error);
+    },
+    onError: (error) => {
+      cycleLogger.error('Scheduler cycle error:', error);
       markCycleError();
-    });
-  }
+    },
+    logger: cycleLogger,
+  });
 
-  const timer = setInterval(() => {
-    void runSchedulerCycle(logger).catch((error) => {
-      logger.error('Scheduler cycle error:', error);
-      markCycleError();
-    });
-  }, intervalSeconds * 1000);
-
-  runningLoops.set(key, timer);
   markSchedulerStarted();
-  logger.info(`Scheduler loop "${key}" started (${intervalSeconds}s interval).`);
-
-  return () => {
-    const loop = runningLoops.get(key);
-    if (loop) {
-      clearInterval(loop);
-      runningLoops.delete(key);
-      logger.info(`Scheduler loop "${key}" stopped.`);
-    }
-  };
+  return stop;
 }

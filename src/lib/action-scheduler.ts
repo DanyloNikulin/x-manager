@@ -1,14 +1,14 @@
-import crypto from 'crypto';
 import { and, asc, eq, lte } from 'drizzle-orm';
-import { db, sqlite } from './db';
-import { scheduledActions, xAccounts } from './db/schema';
+import { db } from './db';
+import { scheduledActions } from './db/schema';
 import { requireConnectedAccount, recordEngagementAction } from './engagement-ops';
 import { postTweet, sendDirectMessage, likeTweet, repostTweet } from './twitter-api-client';
 import { getResolvedXConfig } from './x-config';
-import { decryptAccountTokens } from './x-account-crypto';
 import { checkPolicy } from './policy';
 import { normalizeAccountSlot } from './account-slots';
 import { logger, type Logger } from './logger';
+import { createOwnerId, withLease } from './scheduler-lock';
+import { startIntervalLoop } from './interval-loop';
 
 // ---------------------------------------------------------------------------
 // Logger
@@ -40,8 +40,7 @@ interface StartActionSchedulerLoopOptions {
 // Lease lock
 // ---------------------------------------------------------------------------
 
-const runningLoops = new Map<string, NodeJS.Timeout>();
-const actionSchedulerOwnerId = `${process.pid}-${crypto.randomUUID().slice(0, 8)}`;
+const actionSchedulerOwnerId = createOwnerId();
 const actionSchedulerLockKey = 'action-scheduler-cycle';
 
 // ---------------------------------------------------------------------------
@@ -76,34 +75,18 @@ export async function runActionSchedulerCycle(
   logger: ActionSchedulerLogger = defaultLogger,
 ): Promise<ActionSchedulerCycleResult> {
   const leaseSeconds = Math.max(30, Number(process.env.ACTION_SCHEDULER_LOCK_LEASE_SECONDS || 90));
-  const nowEpoch = Math.floor(Date.now() / 1000);
-  const leaseUntil = nowEpoch + leaseSeconds;
 
-  // Ensure the lock row exists.
-  sqlite
-    .prepare(
-      `INSERT INTO scheduler_locks (lock_key, owner_id, lease_until, created_at, updated_at)
-       VALUES (?, ?, ?, unixepoch(), unixepoch())
-       ON CONFLICT(lock_key) DO NOTHING`,
-    )
-    .run(actionSchedulerLockKey, actionSchedulerOwnerId, leaseUntil);
-
-  // Attempt to acquire lease.
-  const lockAcquireResult = sqlite
-    .prepare(
-      `UPDATE scheduler_locks
-       SET owner_id = ?, lease_until = ?, updated_at = unixepoch()
-       WHERE lock_key = ?
-         AND (lease_until < ? OR owner_id = ?)`,
-    )
-    .run(actionSchedulerOwnerId, leaseUntil, actionSchedulerLockKey, nowEpoch, actionSchedulerOwnerId);
-
-  if (lockAcquireResult.changes === 0) {
-    logger.warn('Another action-scheduler instance owns the lease. Skipping this cycle.');
-    return { skipped: true, processed: 0, completed: 0, failed: 0 };
-  }
-
-  try {
+  return withLease(
+    {
+      lockKey: actionSchedulerLockKey,
+      ownerId: actionSchedulerOwnerId,
+      leaseSeconds,
+      onSkip: (): ActionSchedulerCycleResult => {
+        logger.warn('Another action-scheduler instance owns the lease. Skipping this cycle.');
+        return { skipped: true, processed: 0, completed: 0, failed: 0 };
+      },
+    },
+    async () => {
     const config = await getResolvedXConfig();
 
     // Query all due actions.
@@ -376,15 +359,8 @@ export async function runActionSchedulerCycle(
       completed,
       failed,
     };
-  } finally {
-    sqlite
-      .prepare(
-        `UPDATE scheduler_locks
-         SET lease_until = 0, updated_at = unixepoch()
-         WHERE lock_key = ? AND owner_id = ?`,
-      )
-      .run(actionSchedulerLockKey, actionSchedulerOwnerId);
-  }
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -414,48 +390,24 @@ async function updateActionStatus(
 
 export function startActionSchedulerLoop(options: StartActionSchedulerLoopOptions = {}): () => void {
   const key = options.key || 'action-scheduler';
-  const logger = options.logger || defaultLogger;
+  const cycleLogger = options.logger || defaultLogger;
   const intervalSeconds = Math.max(10, Math.floor(options.intervalSeconds || 30));
   const runOnStart = options.runOnStart !== false;
 
-  if (runningLoops.has(key)) {
-    logger.info(`Loop "${key}" already active. Skipping duplicate start.`);
-    return () => {
-      const timer = runningLoops.get(key);
-      if (timer) {
-        clearInterval(timer);
-        runningLoops.delete(key);
-      }
-    };
-  }
-
-  if (runOnStart) {
-    void runActionSchedulerCycle(logger).then((result) => {
+  return startIntervalLoop({
+    key,
+    intervalSeconds,
+    runOnStart,
+    unref: true,
+    run: async () => {
+      const result = await runActionSchedulerCycle(cycleLogger);
       if (result.processed > 0) {
-        logger.info(`Initial cycle processed ${result.processed} actions.`);
+        cycleLogger.info(`Cycle processed ${result.processed} actions.`);
       }
-    });
-  }
-
-  const timer = setInterval(() => {
-    void runActionSchedulerCycle(logger).catch((error) => {
-      logger.error('Action scheduler cycle error:', error);
-    });
-  }, intervalSeconds * 1000);
-
-  if (typeof timer.unref === 'function') {
-    timer.unref();
-  }
-
-  runningLoops.set(key, timer);
-  logger.info(`Action scheduler loop "${key}" started (${intervalSeconds}s interval).`);
-
-  return () => {
-    const loop = runningLoops.get(key);
-    if (loop) {
-      clearInterval(loop);
-      runningLoops.delete(key);
-      logger.info(`Action scheduler loop "${key}" stopped.`);
-    }
-  };
+    },
+    onError: (error) => {
+      cycleLogger.error('Action scheduler cycle error:', error);
+    },
+    logger: cycleLogger,
+  });
 }

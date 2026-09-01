@@ -1,19 +1,19 @@
-import nodeCrypto from 'crypto';
+import crypto from 'crypto';
 import { and, eq, gte, isNotNull, desc } from 'drizzle-orm';
-import { db, sqlite } from './db';
+import { db } from './db';
 import { scheduledPosts, postMetrics, xAccounts } from './db/schema';
 import { getResolvedXConfig, type ResolvedXConfig } from './x-config';
 import { decryptAccountTokens } from './x-account-crypto';
 import { logger, type Logger } from './logger';
+import { createOwnerId, withLease } from './scheduler-lock';
+import { startIntervalLoop } from './interval-loop';
 
 type MetricsLogger = Logger;
 
 const defaultLogger: MetricsLogger = logger('metrics-collector');
 
-const metricsOwnerId = `${process.pid}-${nodeCrypto.randomUUID().slice(0, 8)}`;
+const metricsOwnerId = createOwnerId();
 const metricsLockKey = 'metrics-collector';
-
-let runningTimer: NodeJS.Timeout | null = null;
 
 async function getConnectedAccounts() {
   const rows = await db.select().from(xAccounts);
@@ -58,7 +58,7 @@ export async function fetchTweetMetrics(
     consumer: { key: config.xApiKey, secret: config.xApiSecret },
     signature_method: 'HMAC-SHA1',
     hash_function(base_string: string, key: string) {
-      return nodeCrypto.createHmac('sha1', key).update(base_string).digest('base64');
+      return crypto.createHmac('sha1', key).update(base_string).digest('base64');
     },
   });
 
@@ -124,32 +124,16 @@ export async function fetchTweetMetrics(
 
 export async function runMetricsCollectionCycle(logger: MetricsLogger = defaultLogger): Promise<{ collected: number }> {
   const leaseSeconds = 120;
-  const nowEpoch = Math.floor(Date.now() / 1000);
-  const leaseUntil = nowEpoch + leaseSeconds;
 
-  // Acquire lease lock
-  sqlite
-    .prepare(
-      `INSERT INTO scheduler_locks (lock_key, owner_id, lease_until, created_at, updated_at)
-       VALUES (?, ?, ?, unixepoch(), unixepoch())
-       ON CONFLICT(lock_key) DO NOTHING`,
-    )
-    .run(metricsLockKey, metricsOwnerId, leaseUntil);
-
-  const lockResult = sqlite
-    .prepare(
-      `UPDATE scheduler_locks
-       SET owner_id = ?, lease_until = ?, updated_at = unixepoch()
-       WHERE lock_key = ?
-         AND (lease_until < ? OR owner_id = ?)`,
-    )
-    .run(metricsOwnerId, leaseUntil, metricsLockKey, nowEpoch, metricsOwnerId);
-
-  if (lockResult.changes === 0) {
-    return { collected: 0 };
-  }
-
-  try {
+  return withLease(
+    {
+      lockKey: metricsLockKey,
+      ownerId: metricsOwnerId,
+      leaseSeconds,
+      onSkip: () => ({ collected: 0 }),
+    },
+    async () => {
+      try {
     const config = await getResolvedXConfig();
     const accounts = await getConnectedAccounts();
     if (accounts.length === 0) return { collected: 0 };
@@ -208,47 +192,26 @@ export async function runMetricsCollectionCycle(logger: MetricsLogger = defaultL
     }
 
     return { collected };
-  } catch (error) {
-    logger.error('Metrics collection cycle failed:', error);
-    return { collected: 0 };
-  } finally {
-    sqlite
-      .prepare(
-        `UPDATE scheduler_locks
-         SET lease_until = 0, updated_at = unixepoch()
-         WHERE lock_key = ? AND owner_id = ?`,
-      )
-      .run(metricsLockKey, metricsOwnerId);
-  }
+      } catch (error) {
+        logger.error('Metrics collection cycle failed:', error);
+        return { collected: 0 };
+      }
+    },
+  );
 }
 
 export function startMetricsCollectorLoop(intervalSeconds = 900): () => void {
-  if (runningTimer) {
-    return () => {
-      if (runningTimer) {
-        clearInterval(runningTimer);
-        runningTimer = null;
-      }
-    };
-  }
-
-  const timer = setInterval(() => {
-    void runMetricsCollectionCycle().catch((error) => {
+  return startIntervalLoop({
+    key: 'metrics-collector',
+    intervalSeconds,
+    runOnStart: false,
+    unref: true,
+    run: async () => {
+      await runMetricsCollectionCycle();
+    },
+    onError: (error) => {
       defaultLogger.error('Cycle error', error instanceof Error ? error : undefined);
-    });
-  }, intervalSeconds * 1000);
-
-  if (typeof timer.unref === 'function') {
-    timer.unref();
-  }
-
-  runningTimer = timer;
-  defaultLogger.info(`Started (${intervalSeconds}s interval).`);
-
-  return () => {
-    if (runningTimer) {
-      clearInterval(runningTimer);
-      runningTimer = null;
-    }
-  };
+    },
+    logger: defaultLogger,
+  });
 }

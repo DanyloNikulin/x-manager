@@ -4,6 +4,7 @@ import { scheduledPosts } from './db/schema';
 import { canonicalizeUrl, computeDedupeKey, extractFirstUrl, normalizeCopy } from './scheduler-dedupe';
 import { emitEvent } from './events';
 import { deliverEventToWebhooks } from './webhook-delivery';
+import { isSqliteConstraintError } from './sqlite-errors';
 
 export interface CreateScheduledPostInput {
   accountSlot: 1 | 2 | 3;
@@ -47,21 +48,41 @@ export async function createScheduledPost(input: CreateScheduledPostInput): Prom
     }
   }
 
-  const inserted = await db.insert(scheduledPosts).values({
-    accountSlot: input.accountSlot,
-    text: input.text,
-    sourceUrl: canonicalUrl,
-    dedupeKey,
-    threadId: input.threadId ?? null,
-    threadIndex: input.threadIndex ?? null,
-    mediaUrls: JSON.stringify(input.mediaUrls ?? []),
-    communityId: input.communityId ?? null,
-    replyToTweetId: input.replyToTweetId ?? null,
-    scheduledTime: input.scheduledTime,
-    tags: input.tags?.length ? JSON.stringify(input.tags) : null,
-  }).returning();
-
-  const post = inserted[0];
+  let post: typeof scheduledPosts.$inferSelect;
+  try {
+    const inserted = await db.insert(scheduledPosts).values({
+      accountSlot: input.accountSlot,
+      text: input.text,
+      sourceUrl: canonicalUrl,
+      dedupeKey,
+      threadId: input.threadId ?? null,
+      threadIndex: input.threadIndex ?? null,
+      mediaUrls: JSON.stringify(input.mediaUrls ?? []),
+      communityId: input.communityId ?? null,
+      replyToTweetId: input.replyToTweetId ?? null,
+      scheduledTime: input.scheduledTime,
+      tags: input.tags?.length ? JSON.stringify(input.tags) : null,
+    }).returning();
+    post = inserted[0];
+  } catch (error) {
+    if (dedupeKey && isSqliteConstraintError(error)) {
+      const existing = await db
+        .select()
+        .from(scheduledPosts)
+        .where(
+          and(
+            eq(scheduledPosts.accountSlot, input.accountSlot),
+            eq(scheduledPosts.status, 'scheduled'),
+            eq(scheduledPosts.dedupeKey, dedupeKey),
+          ),
+        )
+        .limit(1);
+      if (existing[0]) {
+        return { post: existing[0], skipped: true };
+      }
+    }
+    throw error;
+  }
   const payload = {
     scheduledTime: post.scheduledTime?.toISOString?.() ?? input.scheduledTime.toISOString(),
     sourceUrl: post.sourceUrl,

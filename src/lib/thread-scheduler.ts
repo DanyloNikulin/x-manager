@@ -6,6 +6,7 @@ import { scheduledPosts } from '@/lib/db/schema';
 import { parseAccountSlot, type AccountSlot } from '@/lib/account-slots';
 import { canonicalizeUrl, computeDedupeKey, extractFirstUrl, normalizeCopy } from '@/lib/scheduler-dedupe';
 import { ensureSafeUploadUrl } from '@/lib/uploads';
+import { isSqliteConstraintError } from '@/lib/sqlite-errors';
 
 export interface ThreadTweetInput {
   text: string;
@@ -170,8 +171,7 @@ export async function scheduleThread(options: ScheduleThreadOptions): Promise<Sc
     const inserted = await db.insert(scheduledPosts).values(values).returning();
     return { threadId, scheduled: inserted.length, posts: inserted };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (dedupe && message.includes('SQLITE_CONSTRAINT') && keysToCheck.length > 0) {
+    if (dedupe && isSqliteConstraintError(error) && keysToCheck.length > 0) {
       const existing = await db
         .select()
         .from(scheduledPosts)

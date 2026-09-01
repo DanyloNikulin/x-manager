@@ -1,6 +1,10 @@
 import { and, asc, eq, lte, sql } from 'drizzle-orm';
 import { db, sqlite } from './db';
-import { recurringSchedules, contentPool, scheduledPosts, mediaLibrary } from './db/schema';
+import { recurringSchedules, contentPool, mediaLibrary } from './db/schema';
+import { createScheduledPost } from './post-scheduler';
+import { normalizeAccountSlot } from './account-slots';
+import { startIntervalLoop } from './interval-loop';
+import { logger } from './logger';
 
 export type Frequency = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'custom_cron';
 
@@ -109,7 +113,7 @@ async function resolveMediaUrls(ids: number[]): Promise<string[]> {
   return urls;
 }
 
-let _started = false;
+const recurringLogger = logger('recurring');
 
 /**
  * Process all recurring schedules that are due.
@@ -183,57 +187,44 @@ export async function processRecurringSchedules(): Promise<{ processed: number; 
       const newTimesRun = schedule.timesRun + 1;
       const newStatus = schedule.maxRuns !== null && newTimesRun >= schedule.maxRuns ? 'exhausted' : 'active';
 
-      // C3/S7 fix: Wrap advance + insert in a transaction.
-      // Check affected rows from optimistic update to prevent double-processing.
-      const txResult = sqlite.transaction(() => {
-        const updateResult = sqlite
-          .prepare(
-            `UPDATE recurring_schedules
-             SET next_run_at = ?, last_run_at = ?, times_run = ?, status = ?, updated_at = ?
-             WHERE id = ? AND times_run = ?`,
-          )
-          .run(
-            nextRunAt.toISOString(),
-            now.toISOString(),
-            newTimesRun,
-            newStatus,
-            new Date().toISOString(),
-            schedule.id,
-            schedule.timesRun,
-          );
+      // Advance the schedule first so two workers cannot create the same occurrence.
+      const advanced = sqlite
+        .prepare(
+          `UPDATE recurring_schedules
+           SET next_run_at = ?, last_run_at = ?, times_run = ?, status = ?, updated_at = ?
+           WHERE id = ? AND times_run = ?`,
+        )
+        .run(
+          Math.floor(nextRunAt.getTime() / 1000),
+          Math.floor(now.getTime() / 1000),
+          newTimesRun,
+          newStatus,
+          Math.floor(Date.now() / 1000),
+          schedule.id,
+          schedule.timesRun,
+        );
 
-        if (updateResult.changes === 0) {
-          // Another instance already processed this schedule
-          return { skipped: true } as const;
-        }
-
-        sqlite
-          .prepare(
-            `INSERT INTO scheduled_posts (account_slot, text, media_urls, community_id, scheduled_time)
-             VALUES (?, ?, ?, ?, ?)`,
-          )
-          .run(
-            schedule.accountSlot,
-            postText,
-            mediaUrls.length > 0 ? JSON.stringify(mediaUrls) : null,
-            schedule.communityId,
-            scheduledTime.toISOString(),
-          );
-
-        if (poolItemId !== null) {
-          sqlite
-            .prepare(`UPDATE content_pool SET used_count = used_count + 1, last_used_at = ? WHERE id = ?`)
-            .run(now.toISOString(), poolItemId);
-        }
-
-        return { skipped: false } as const;
-      })();
-
-      if (txResult.skipped) {
+      if (advanced.changes === 0) {
         continue;
       }
 
-      created++;
+      const { skipped } = await createScheduledPost({
+        accountSlot: normalizeAccountSlot(schedule.accountSlot, 1),
+        text: postText,
+        mediaUrls,
+        communityId: schedule.communityId,
+        scheduledTime,
+      });
+
+      if (poolItemId !== null) {
+        sqlite
+          .prepare(`UPDATE content_pool SET used_count = used_count + 1, last_used_at = ? WHERE id = ?`)
+          .run(Math.floor(now.getTime() / 1000), poolItemId);
+      }
+
+      if (!skipped) {
+        created++;
+      }
       processed++;
     } catch (error) {
       console.error(`[recurring] Error processing schedule ${schedule.id}:`, error);
@@ -243,13 +234,21 @@ export async function processRecurringSchedules(): Promise<{ processed: number; 
   return { processed, created };
 }
 
-/**
- * Guard against double-start (HMR, multiple registerNodeInstrumentation calls).
- */
-export function isRecurringProcessorStarted(): boolean {
-  return _started;
-}
-
-export function markRecurringProcessorStarted(): void {
-  _started = true;
+export function startRecurringProcessorLoop(intervalSeconds = 300): () => void {
+  return startIntervalLoop({
+    key: 'recurring-processor',
+    intervalSeconds: Math.max(60, intervalSeconds),
+    runOnStart: false,
+    unref: true,
+    run: async () => {
+      const result = await processRecurringSchedules();
+      if (result.created > 0) {
+        recurringLogger.info(`Processed ${result.processed} recurring schedules, created ${result.created} posts.`);
+      }
+    },
+    onError: (error) => {
+      recurringLogger.error('Recurring processor cycle error', error instanceof Error ? error : undefined);
+    },
+    logger: recurringLogger,
+  });
 }

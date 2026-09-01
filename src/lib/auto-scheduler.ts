@@ -1,6 +1,9 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { db, sqlite } from './db';
-import { contentQueue, scheduledPosts } from './db/schema';
+import { contentQueue } from './db/schema';
+import { createScheduledPost } from './post-scheduler';
+import { normalizeAccountSlot } from './account-slots';
+import { parseStringArray } from './json-array';
 
 // Default optimal posting times (if no analytics data available)
 const DEFAULT_POSTING_HOURS = [9, 12, 15, 18, 20];
@@ -117,22 +120,21 @@ export async function processQueue(accountSlot: number): Promise<{ scheduled: nu
     const item = queuedItems[i];
     const slot = timeSlots[i];
 
-    // Create scheduled post
-    const inserted = await db.insert(scheduledPosts).values({
-      accountSlot: item.accountSlot,
+    const { post, skipped } = await createScheduledPost({
+      accountSlot: normalizeAccountSlot(item.accountSlot, 1),
       text: item.text,
-      mediaUrls: item.mediaUrls,
+      mediaUrls: parseStringArray(item.mediaUrls),
       communityId: item.communityId,
       scheduledTime: slot,
-    }).returning();
+    });
 
-    if (inserted.length > 0) {
-      // Update queue item
-      await db.update(contentQueue).set({
-        status: 'scheduled',
-        scheduledPostId: inserted[0].id,
-        updatedAt: new Date(),
-      }).where(eq(contentQueue.id, item.id));
+    await db.update(contentQueue).set({
+      status: 'scheduled',
+      scheduledPostId: post.id,
+      updatedAt: new Date(),
+    }).where(eq(contentQueue.id, item.id));
+
+    if (!skipped) {
       scheduled++;
     }
   }
