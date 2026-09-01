@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asBool, asInt, asIntOr, asString } from '@/lib/http-parse';
+import { asBool, asInt, asIntOr, asString, clamp, isProvided } from '@/lib/http-parse';
 
 describe('http-parse', () => {
   it('trims non-empty strings and rejects other values', () => {
@@ -20,5 +20,11 @@ describe('http-parse', () => {
     expect(asInt('nope')).toBeNull();
     expect(asIntOr('nope', 4)).toBe(4);
     expect(asInt(3.9)).toBe(3);
+  });
+
+  it('treats empty strings as missing and clamps ranges', () => {
+    expect(isProvided('')).toBe(false);
+    expect(isProvided('x')).toBe(true);
+    expect(clamp(40, 1, 10)).toBe(10);
   });
 });

@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { scheduledPosts } from '@/lib/db/schema';
 import { parseCsvImportFlags, prepareCsvImport } from '@/lib/csv-import';
-import { and, eq, inArray } from 'drizzle-orm';
-import { canonicalizeUrl, computeDedupeKey, extractFirstUrl, normalizeCopy } from '@/lib/scheduler-dedupe';
+import { createScheduledPost } from '@/lib/post-scheduler';
+import { apiError } from '@/lib/api-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,11 +12,11 @@ export async function POST(req: Request) {
     const file = formData.get('file') as File | null;
 
     if (!file) {
-      return NextResponse.json({ error: 'Missing file. Upload a CSV file.' }, { status: 400 });
+      return apiError('VALIDATION_ERROR', 'Missing file. Upload a CSV file.');
     }
 
     if (!file.name.toLowerCase().endsWith('.csv')) {
-      return NextResponse.json({ error: 'Only .csv files are supported.' }, { status: 400 });
+      return apiError('VALIDATION_ERROR', 'Only .csv files are supported.');
     }
 
     const csvText = await file.text();
@@ -41,6 +39,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error: 'CSV validation failed.',
+          code: 'VALIDATION_ERROR',
           totalRows: result.totalRows,
           validRows: result.posts.length,
           errors: result.errors,
@@ -77,74 +76,25 @@ export async function POST(req: Request) {
     }
 
     if (result.posts.length === 0) {
-      return NextResponse.json({ error: 'No valid rows to import.' }, { status: 400 });
+      return apiError('VALIDATION_ERROR', 'No valid rows to import.');
     }
 
-    const values = result.posts.map((post) => ({
-      accountSlot: post.accountSlot,
-      text: post.text,
-      sourceUrl: (() => {
-        const extracted = extractFirstUrl(post.text);
-        return extracted ? canonicalizeUrl(extracted) : null;
-      })(),
-      dedupeKey: (() => {
-        const extracted = extractFirstUrl(post.text);
-        if (!extracted) return null;
-        const canonicalUrl = canonicalizeUrl(extracted);
-        return computeDedupeKey({
-          accountSlot: post.accountSlot,
-          canonicalUrl,
-          normalizedCopy: normalizeCopy(post.text),
-        });
-      })(),
-      scheduledTime: post.scheduledTime,
-      communityId: post.communityId,
-      replyToTweetId: post.replyToTweetId,
-      status: 'scheduled' as const,
-    }));
-
-    // Dedupe (URL+copy) against existing scheduled posts, per slot.
-    const existingKeysBySlot = new Map<number, Set<string>>();
-    const keysBySlot = new Map<number, string[]>();
-
-    for (const value of values) {
-      if (!value.dedupeKey) continue;
-      const slot = value.accountSlot;
-      const list = keysBySlot.get(slot) || [];
-      list.push(value.dedupeKey);
-      keysBySlot.set(slot, list);
+    const inserted = [];
+    let skipped = 0;
+    for (const post of result.posts) {
+      const created = await createScheduledPost({
+        accountSlot: post.accountSlot,
+        text: post.text,
+        scheduledTime: post.scheduledTime,
+        communityId: post.communityId,
+        replyToTweetId: post.replyToTweetId,
+      });
+      if (created.skipped) {
+        skipped += 1;
+      } else {
+        inserted.push(created.post);
+      }
     }
-
-    for (const [slot, keys] of keysBySlot.entries()) {
-      if (keys.length === 0) continue;
-      const existing = await db
-        .select({ dedupeKey: scheduledPosts.dedupeKey })
-        .from(scheduledPosts)
-        .where(and(eq(scheduledPosts.accountSlot, slot), eq(scheduledPosts.status, 'scheduled'), inArray(scheduledPosts.dedupeKey, keys)));
-      existingKeysBySlot.set(
-        slot,
-        new Set(existing.map((row) => row.dedupeKey).filter((key): key is string => Boolean(key))),
-      );
-    }
-
-    const seenBySlot = new Map<number, Set<string>>();
-    const filtered = values.filter((value) => {
-      if (!value.dedupeKey) return true;
-      const slot = value.accountSlot;
-      const existingKeys = existingKeysBySlot.get(slot);
-      if (existingKeys?.has(value.dedupeKey)) return false;
-      const seen = seenBySlot.get(slot) || new Set<string>();
-      if (seen.has(value.dedupeKey)) return false;
-      seen.add(value.dedupeKey);
-      seenBySlot.set(slot, seen);
-      return true;
-    });
-
-    const skipped = values.length - filtered.length;
-
-    const inserted = filtered.length > 0
-      ? await db.insert(scheduledPosts).values(filtered).returning()
-      : [];
 
     return NextResponse.json({
       imported: inserted.length,
@@ -155,6 +105,6 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error('Error importing CSV posts:', error);
-    return NextResponse.json({ error: 'Failed to import CSV posts.' }, { status: 500 });
+    return apiError('INTERNAL_ERROR', 'Failed to import CSV posts.');
   }
 }

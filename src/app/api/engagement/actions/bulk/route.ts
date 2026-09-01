@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
-import { likeTweet, repostTweet, postTweet } from '@/lib/twitter-api-client';
-import { parseAccountSlot, recordEngagementAction, requireConnectedAccount } from '@/lib/engagement-ops';
+import { normalizeAccountSlot } from '@/lib/account-slots';
 import { db } from '@/lib/db';
 import { engagementInbox } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { executeXAction } from '@/lib/execute-x-action';
+import { apiError } from '@/lib/api-error';
+import { recordEngagementAction } from '@/lib/engagement-ops';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,14 +33,11 @@ export async function POST(req: Request) {
     const items = body.items as BulkAction[] | undefined;
 
     if (!Array.isArray(items) || items.length === 0) {
-      return NextResponse.json({ error: 'items array is required.' }, { status: 400 });
+      return apiError('VALIDATION_ERROR', 'items array is required.');
     }
 
     if (items.length > MAX_ITEMS) {
-      return NextResponse.json(
-        { error: `Too many items. Maximum ${MAX_ITEMS} per request.` },
-        { status: 400 },
-      );
+      return apiError('VALIDATION_ERROR', `Too many items. Maximum ${MAX_ITEMS} per request.`);
     }
 
     const results: BulkResult[] = [];
@@ -46,72 +45,34 @@ export async function POST(req: Request) {
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
 
-      // Small delay between Twitter API calls to avoid rate limiting (skip for first item and dismiss)
       if (i > 0 && item.action !== 'dismiss') {
         await new Promise((r) => setTimeout(r, 250));
       }
 
       try {
-        const accountSlot = parseAccountSlot(item.account_slot ?? 1);
-        const account = await requireConnectedAccount(accountSlot);
-
-        if (!account.twitterUserId) {
-          results.push({ index: i, action: item.action, status: 'error', error: 'Missing twitter user ID.' });
-          continue;
-        }
+        const accountSlot = normalizeAccountSlot(item.account_slot, 1);
 
         switch (item.action) {
-          case 'like': {
-            if (!item.tweet_id) {
-              results.push({ index: i, action: 'like', status: 'error', error: 'tweet_id required.' });
-              break;
-            }
-            await likeTweet(account.twitterAccessToken, account.twitterAccessTokenSecret, account.twitterUserId, item.tweet_id);
-            await recordEngagementAction({
-              inboxId: item.inbox_id ?? null,
-              accountSlot,
-              actionType: 'like',
-              targetId: item.tweet_id,
-              payload: {},
-              status: 'success',
-            });
-            results.push({ index: i, action: 'like', status: 'ok' });
-            break;
-          }
-
-          case 'repost': {
-            if (!item.tweet_id) {
-              results.push({ index: i, action: 'repost', status: 'error', error: 'tweet_id required.' });
-              break;
-            }
-            await repostTweet(account.twitterAccessToken, account.twitterAccessTokenSecret, account.twitterUserId, item.tweet_id);
-            await recordEngagementAction({
-              inboxId: item.inbox_id ?? null,
-              accountSlot,
-              actionType: 'repost',
-              targetId: item.tweet_id,
-              payload: {},
-              status: 'success',
-            });
-            results.push({ index: i, action: 'repost', status: 'ok' });
-            break;
-          }
-
+          case 'like':
+          case 'repost':
           case 'reply': {
-            if (!item.tweet_id || !item.text?.trim()) {
+            if (!item.tweet_id) {
+              results.push({ index: i, action: item.action, status: 'error', error: 'tweet_id required.' });
+              break;
+            }
+            if (item.action === 'reply' && !item.text?.trim()) {
               results.push({ index: i, action: 'reply', status: 'error', error: 'tweet_id and text required.' });
               break;
             }
-            await postTweet(item.text, account.twitterAccessToken, account.twitterAccessTokenSecret, [], undefined, item.tweet_id);
-            await recordEngagementAction({
-              inboxId: item.inbox_id ?? null,
-              accountSlot,
-              actionType: 'reply',
+            await executeXAction({
+              type: item.action,
+              slot: accountSlot,
               targetId: item.tweet_id,
-              payload: { text: item.text },
-              status: 'success',
+              text: item.text,
+              inboxId: item.inbox_id ?? null,
+              payload: item.action === 'reply' ? { text: item.text } : {},
             });
-            results.push({ index: i, action: 'reply', status: 'ok' });
+            results.push({ index: i, action: item.action, status: 'ok' });
             break;
           }
 
@@ -151,6 +112,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ results, summary: { total: items.length, succeeded, failed } });
   } catch (error) {
     console.error('Bulk engagement error:', error);
-    return NextResponse.json({ error: 'Failed to process bulk actions.' }, { status: 500 });
+    return apiError('INTERNAL_ERROR', 'Failed to process bulk actions.');
   }
 }

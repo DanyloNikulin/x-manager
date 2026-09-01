@@ -2,7 +2,8 @@ import { and, desc, eq, type SQL } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { campaigns } from '@/lib/db/schema';
-import { parseAccountSlot } from '@/lib/engagement-ops';
+import { normalizeAccountSlot } from '@/lib/account-slots';
+import { asString } from '@/lib/http-parse';
 
 type CampaignCreateBody = {
   name?: unknown;
@@ -16,10 +17,6 @@ type CampaignCreateBody = {
 
 const ALLOWED_STATUSES = ['draft', 'active', 'paused', 'completed', 'archived'] as const;
 type CampaignStatus = (typeof ALLOWED_STATUSES)[number];
-
-function asString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-}
 
 function asDate(value: unknown): Date | null {
   if (typeof value !== 'string' || !value.trim()) return null;
@@ -52,7 +49,7 @@ export async function GET(req: Request) {
       conditions.push(eq(campaigns.status, statusFilter));
     }
     if (slotFilter) {
-      const slot = parseAccountSlot(slotFilter);
+      const slot = normalizeAccountSlot(slotFilter);
       conditions.push(eq(campaigns.accountSlot, slot));
     }
 
@@ -73,7 +70,7 @@ export async function POST(req: Request) {
     const name = asString(body.name);
     const objective = asString(body.objective);
     const instructions = asString(body.instructions);
-    const accountSlot = parseAccountSlot(body.account_slot ?? 1);
+    const accountSlot = normalizeAccountSlot(body.account_slot ?? 1);
     const startAt = asDate(body.start_at);
     const endAt = asDate(body.end_at);
     const status = asCampaignStatus(body.status) ?? 'draft';

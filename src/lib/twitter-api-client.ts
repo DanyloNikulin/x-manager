@@ -1,6 +1,7 @@
 import OAuth from 'oauth-1.0a';
 import CryptoJS from 'crypto-js';
 import { getResolvedXConfig, type ResolvedXConfig } from './x-config';
+import { asString } from './http-parse';
 
 interface TwitterApiError {
   message: string;
@@ -31,10 +32,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     return value as Record<string, unknown>;
   }
   return null;
-}
-
-function asString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
 function uniqueMessages(messages: string[]): string[] {

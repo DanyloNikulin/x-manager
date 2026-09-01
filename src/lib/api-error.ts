@@ -14,6 +14,7 @@ export type ErrorCode =
   | "BRIDGE_NOT_CONFIGURED"
   | "UNAUTHORIZED"
   | "NOT_FOUND"
+  | "CONFLICT"
   | "INTERNAL_ERROR";
 
 export type ApiErrorResponse = {
@@ -38,6 +39,7 @@ const defaultStatusForCode: Record<ErrorCode, number> = {
   BRIDGE_NOT_CONFIGURED: 503,
   UNAUTHORIZED: 401,
   NOT_FOUND: 404,
+  CONFLICT: 409,
   INTERNAL_ERROR: 500,
 };
 

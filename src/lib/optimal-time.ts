@@ -162,3 +162,32 @@ export function suggestMultipleOptimalTimes(
 
   return suggestions;
 }
+
+const FALLBACK_UTC_HOURS = [9, 12, 15, 18, 20];
+
+/**
+ * Pick `count` future hour slots for a queue drain, using the engagement heatmap
+ * when it has data and the same UTC fallback as suggestOptimalTime otherwise.
+ */
+export function suggestNextAvailableSlots(accountSlot: number, count: number): Date[] {
+  const ranked = suggestMultipleOptimalTimes(accountSlot, count);
+  const slots: Date[] = ranked.map((entry) => entry.time);
+  const seen = new Set(slots.map((d) => `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}-${d.getUTCHours()}`));
+
+  if (slots.length >= count) return slots.slice(0, count);
+
+  const cursor = new Date();
+  cursor.setUTCMinutes(0, 0, 0);
+  let guard = 0;
+  while (slots.length < count && guard < count * 48) {
+    guard += 1;
+    cursor.setUTCHours(cursor.getUTCHours() + 1);
+    if (!FALLBACK_UTC_HOURS.includes(cursor.getUTCHours())) continue;
+    const key = `${cursor.getUTCFullYear()}-${cursor.getUTCMonth()}-${cursor.getUTCDate()}-${cursor.getUTCHours()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    slots.push(new Date(cursor));
+  }
+
+  return slots;
+}

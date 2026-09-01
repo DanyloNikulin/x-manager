@@ -3,7 +3,9 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { engagementInbox } from '@/lib/db/schema';
 import { fetchMentionsTimeline, listDirectMessages } from '@/lib/twitter-api-client';
-import { parseAccountSlot, requireConnectedAccount } from '@/lib/engagement-ops';
+import { requireConnectedAccount } from '@/lib/engagement-ops';
+import { normalizeAccountSlot } from '@/lib/account-slots';
+import { asBool, asString } from '@/lib/http-parse';
 import { emitEvent } from '@/lib/events';
 import { deliverEventToWebhooks } from '@/lib/webhook-delivery';
 
@@ -15,24 +17,10 @@ type SyncBody = {
   since_id?: unknown;
 };
 
-function asBool(value: unknown, fallback: boolean): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) return true;
-    if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) return false;
-  }
-  return fallback;
-}
-
 function asCount(value: unknown, fallback: number): number {
   const parsed = typeof value === 'string' ? Number.parseInt(value, 10) : Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(1, Math.min(100, Math.floor(parsed)));
-}
-
-function asString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
 export const runtime = 'nodejs';
@@ -73,7 +61,7 @@ export async function POST(req: Request) {
       body = {};
     }
 
-    const accountSlot = parseAccountSlot(body.account_slot ?? 1);
+    const accountSlot = normalizeAccountSlot(body.account_slot, 1);
     const includeMentions = asBool(body.include_mentions, true);
     const includeDms = asBool(body.include_dms, false);
     const count = asCount(body.count, 25);

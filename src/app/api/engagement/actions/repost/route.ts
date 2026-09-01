@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { repostTweet } from '@/lib/twitter-api-client';
-import { parseAccountSlot, recordEngagementAction, requireConnectedAccount } from '@/lib/engagement-ops';
+import { normalizeAccountSlot } from '@/lib/account-slots';
 import { withIdempotency } from '@/lib/idempotency';
 import { asInt, asString } from '@/lib/http-parse';
+import { apiError } from '@/lib/api-error';
+import { executeXAction, XActionError } from '@/lib/execute-x-action';
 
 type RepostBody = {
   account_slot?: unknown;
@@ -15,58 +16,32 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   return withIdempotency('engagement-repost', req, async () => {
-    let accountSlot: 1 | 2 | 3 = 1;
-    let inboxId: number | null = null;
-    let tweetId: string | null = null;
-
     try {
       const body = (await req.json()) as RepostBody;
-    accountSlot = parseAccountSlot(body.account_slot ?? 1);
-    inboxId = asInt(body.inbox_id);
-    tweetId = asString(body.tweet_id);
+      const accountSlot = normalizeAccountSlot(body.account_slot, 1);
+      const inboxId = asInt(body.inbox_id);
+      const tweetId = asString(body.tweet_id);
 
-    if (!tweetId) {
-      return NextResponse.json({ error: 'tweet_id is required.' }, { status: 400 });
-    }
+      if (!tweetId) {
+        return apiError('VALIDATION_ERROR', 'tweet_id is required.');
+      }
 
-    const account = await requireConnectedAccount(accountSlot);
-    if (!account.twitterUserId) {
-      return NextResponse.json({ error: 'Connected account is missing twitter user id.' }, { status: 400 });
-    }
-
-    await repostTweet(
-      account.twitterAccessToken,
-      account.twitterAccessTokenSecret,
-      account.twitterUserId,
-      tweetId,
-    );
-
-    await recordEngagementAction({
-      inboxId,
-      accountSlot,
-      actionType: 'repost',
-      targetId: tweetId,
-      payload: {},
-      status: 'success',
-    });
-
-    return NextResponse.json({ ok: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to repost tweet.';
-      await recordEngagementAction({
-        inboxId,
-        accountSlot,
-        actionType: 'repost',
+      await executeXAction({
+        type: 'repost',
+        slot: accountSlot,
         targetId: tweetId,
+        inboxId,
         payload: {},
-        status: 'failed',
-        errorMessage: message,
-      }).catch(() => {
-        // Ignore follow-up logging failures.
       });
 
+      return NextResponse.json({ ok: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to repost tweet.';
       console.error('Failed to repost tweet:', error);
-      return NextResponse.json({ error: message }, { status: 500 });
+      if (error instanceof XActionError) {
+        return apiError('X_API_ERROR', message);
+      }
+      return apiError('INTERNAL_ERROR', message);
     }
   });
 }

@@ -54,6 +54,7 @@ export interface ExecuteXActionInput {
   enforcePolicy?: boolean;
   record?: boolean;
   payload?: unknown;
+  inboxId?: number | null;
 }
 
 function fail(message: string, options?: { retryable?: boolean; result?: unknown }): never {
@@ -79,6 +80,7 @@ export async function executeXAction(input: ExecuteXActionInput): Promise<unknow
   const recordFailure = async (message: string, result?: unknown) => {
     if (record && engagementType) {
       await recordEngagementAction({
+        inboxId: input.inboxId ?? null,
         accountSlot: input.slot,
         actionType: engagementType,
         targetId: input.targetId ?? null,
@@ -93,6 +95,7 @@ export async function executeXAction(input: ExecuteXActionInput): Promise<unknow
   const recordSuccess = async (result: unknown) => {
     if (record && engagementType) {
       await recordEngagementAction({
+        inboxId: input.inboxId ?? null,
         accountSlot: input.slot,
         actionType: engagementType,
         targetId: input.targetId ?? null,

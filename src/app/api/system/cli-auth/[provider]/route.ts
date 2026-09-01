@@ -59,7 +59,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ provid
     return NextResponse.json({ session: submitCliLoginInput(provider, code) });
   } catch (error) {
     if (error instanceof CliAuthError) {
-      return NextResponse.json({ error: error.message, code: error.status === 409 ? 'CONFLICT' : 'VALIDATION_ERROR' }, { status: error.status });
+      return apiError(error.status === 409 ? 'CONFLICT' : 'VALIDATION_ERROR', error.message, { status: error.status });
     }
     const message = error instanceof Error ? error.message : 'Could not submit the login code.';
     return apiError('INTERNAL_ERROR', message);

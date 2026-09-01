@@ -26,3 +26,13 @@ export function asInt(value: unknown): number | null {
 export function asIntOr(value: unknown, fallback: number): number {
   return asInt(value) ?? fallback;
 }
+
+export function isProvided(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (typeof value === 'string' && value.trim().length === 0) return false;
+  return true;
+}
+
+export function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}

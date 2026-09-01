@@ -2,11 +2,10 @@ import { eq } from 'drizzle-orm';
 import { db } from './db';
 import { engagementActions, xAccounts } from './db/schema';
 import { decryptAccountTokens } from './x-account-crypto';
-import { normalizeAccountSlot } from './account-slots';
+import { normalizeAccountSlot, type AccountSlot } from './account-slots';
 
-/** @deprecated Use normalizeAccountSlot from account-slots. Kept as a throwing-free alias. */
-export function parseAccountSlot(value: unknown, fallback = 1): 1 | 2 | 3 {
-  return normalizeAccountSlot(value, fallback as 1 | 2 | 3);
+export function parseAccountSlot(value: unknown, fallback: AccountSlot = 1): AccountSlot {
+  return normalizeAccountSlot(value, fallback);
 }
 
 export type ConnectedAccount = {

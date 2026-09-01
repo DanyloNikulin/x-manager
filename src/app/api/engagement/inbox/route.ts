@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, like, type SQL } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { engagementInbox } from '@/lib/db/schema';
-import { parseAccountSlot } from '@/lib/engagement-ops';
+import { normalizeAccountSlot } from '@/lib/account-slots';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -52,7 +52,7 @@ export async function GET(req: Request) {
 
     const conditions: SQL[] = [];
     if (slotParam) {
-      const slot = parseAccountSlot(slotParam);
+      const slot = normalizeAccountSlot(slotParam);
       conditions.push(eq(engagementInbox.accountSlot, slot));
     }
 

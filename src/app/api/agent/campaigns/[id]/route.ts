@@ -2,7 +2,8 @@ import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { campaigns } from '@/lib/db/schema';
-import { parseAccountSlot } from '@/lib/engagement-ops';
+import { normalizeAccountSlot } from '@/lib/account-slots';
+import { asString } from '@/lib/http-parse';
 
 type CampaignUpdateBody = {
   name?: unknown;
@@ -16,10 +17,6 @@ type CampaignUpdateBody = {
 
 const ALLOWED_STATUSES = ['draft', 'active', 'paused', 'completed', 'archived'] as const;
 type CampaignStatus = (typeof ALLOWED_STATUSES)[number];
-
-function asString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-}
 
 function asDate(value: unknown): Date | null {
   if (typeof value !== 'string' || !value.trim()) return null;
@@ -92,7 +89,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     if (body.account_slot !== undefined) {
-      updates.accountSlot = parseAccountSlot(body.account_slot);
+      updates.accountSlot = normalizeAccountSlot(body.account_slot);
     }
 
     if (body.start_at !== undefined) {
