@@ -31,8 +31,15 @@ pub async fn plan_day(config: &Config, manager: &ManagerClient) -> Result<usize>
 
     let mut created_total = 0;
     for slot in ALL_SLOTS {
-        let Some(account) = resolve_account(config, manager, slot).await? else {
-            continue;
+        // A slot that cannot be resolved (not configured, not onboarded, files missing) is
+        // skipped here; it must never take the other slots or the worker pass down with it.
+        let account = match resolve_account(config, manager, slot).await {
+            Ok(Some(account)) => account,
+            Ok(None) => continue,
+            Err(error) => {
+                warn!(slot, error = %format!("{error:#}"), "planner skipped slot");
+                continue;
+            }
         };
         if account.posts_per_day == 0 || account.paused {
             continue;

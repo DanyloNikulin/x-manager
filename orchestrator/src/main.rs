@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
 use x_manager_orchestrator::{config::Config, manager::ManagerClient, planner, worker};
@@ -45,9 +45,12 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Doctor => doctor(&config, &manager).await,
         Commands::RunOnce => {
-            let planned = planner::plan_day(&config, &manager).await?;
-            if planned > 0 {
-                info!(planned, "planner queued tasks");
+            // The planner is best-effort inside a pass: a failure is logged and the worker
+            // still processes whatever is pending.
+            match planner::plan_day(&config, &manager).await {
+                Ok(planned) if planned > 0 => info!(planned, "planner queued tasks"),
+                Ok(_) => {}
+                Err(error) => warn!(error = %format!("{error:#}"), "planner pass failed; continuing with worker"),
             }
             let processed = worker::run_once(&config, &manager).await?;
             info!(processed, "worker pass completed");
