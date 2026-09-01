@@ -121,7 +121,7 @@ pub async fn run_json_agent<T: DeserializeOwned>(
     let execution = async {
         let (status, (), stdout, stderr) = tokio::try_join!(
             async { child.wait().await.context("failed to wait for agent") },
-            async {
+            async move {
                 stdin
                     .write_all(prompt.as_bytes())
                     .await
@@ -130,6 +130,10 @@ pub async fn run_json_agent<T: DeserializeOwned>(
                     .shutdown()
                     .await
                     .context("failed to close agent prompt pipe")?;
+                // `shutdown` is a no-op for `ChildStdin`; the child only sees EOF once the
+                // handle is dropped. `claude -p` / `codex exec -` read the prompt until EOF,
+                // so keeping the pipe open here deadlocks both sides until the timeout.
+                drop(stdin);
                 Ok::<_, anyhow::Error>(())
             },
             read_capped(&mut stdout, MAX_AGENT_OUTPUT_BYTES),
