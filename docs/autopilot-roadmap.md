@@ -122,6 +122,10 @@ inbox, to a draft, to an approved post.
 
 ---
 
+## Status (2026-09-03)
+
+Delivered and live on the station: ring 1 (digest, `GET /api/agent/accounts/:slot/digest`), ring 2 (weekly analyst, proposals in the console), ring 3 (reply playbook, writer triage, `skipped` outcome, depth cap; the live mention test is still pending a real mention), ring 4 (researcher: budgeted X radar, suggestions only, outbound reply tasks under approval, Radar tab). Rings 5 and 6 are not started. Details per role in `docs/subscription-worker.md`.
+
 ## Rings, in order
 
 1. **Data and digest.** Metric snapshots at +24 h and +7 d for every autopilot post, tied to the
