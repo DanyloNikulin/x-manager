@@ -35,6 +35,24 @@ export async function GET(req: Request) {
         description: 'Health/readiness check including connected X slots and scheduler state.',
       },
       {
+        id: 'overview',
+        method: 'GET',
+        path: '/api/agent/overview',
+        description: "Per-slot overview: today's plan and planner notes, queue, drafts and tasks waiting for a human, published posts with first numbers.",
+      },
+      {
+        id: 'worker_state',
+        method: 'GET',
+        path: '/api/system/worker',
+        description: 'Subscription worker liveness and recent passes parsed from logs/worker.log, plus the whitelisted orchestrator config (?passes=N).',
+      },
+      {
+        id: 'replan_today',
+        method: 'POST',
+        path: '/api/agent/accounts/:slot/replan',
+        description: "Forget today's planner marker for a slot so the next worker pass plans it again.",
+      },
+      {
         id: 'auth_login',
         method: 'POST',
         path: '/api/system/auth/login',

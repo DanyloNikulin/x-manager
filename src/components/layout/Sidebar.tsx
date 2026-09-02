@@ -1,6 +1,6 @@
 'use client';
 
-import { Home, Calendar, Compass, Settings, Users, LogOut, Workflow, BarChart3, FileText, FileUp } from 'lucide-react';
+import { Home, Calendar, Compass, Cpu, Users, LogOut, Workflow, BarChart3, FileText, FileUp } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/ThemeProvider';
 
 interface SidebarProps {
@@ -21,7 +21,7 @@ export default function Sidebar({ activeView, onViewChange, onLogout }: SidebarP
       <nav className="flex-1 space-y-4 w-full px-2">
         <NavItem 
           icon={<Home size={22} />} 
-          label="Dashboard" 
+          label="Overview" 
           active={activeView === 'dashboard'} 
           onClick={() => onViewChange('dashboard')} 
         />
@@ -68,8 +68,8 @@ export default function Sidebar({ activeView, onViewChange, onLogout }: SidebarP
           onClick={() => onViewChange('accounts')} 
         />
         <NavItem 
-          icon={<Settings size={22} />} 
-          label="Settings" 
+          icon={<Cpu size={22} />} 
+          label="Orchestrator" 
           active={activeView === 'settings'} 
           onClick={() => onViewChange('settings')} 
         />

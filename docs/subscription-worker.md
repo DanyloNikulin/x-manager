@@ -95,3 +95,11 @@ Run X-Manager, the Rust worker, and the subscription CLIs under the same Linux u
 The Settings page contains a host-local login control deck for Claude Code, Codex CLI, and Kimi Code. Codex and Kimi expose device links/codes that can be opened in the operator's browser. Claude subscription OAuth may open Chrome in the server desktop session. X-Manager only supervises the fixed CLI commands and displays sanitized output; credentials remain in each CLI's own storage under the service user's home directory.
 
 The application supports three X account slots, but `config.example.toml` intentionally enables only slots 1 and 2. Each slot has separate profile, voice, strategy, and memory files. Adding another account requires an explicit config entry and completed onboarding rather than silently sharing context.
+
+## Operator views
+
+X-Manager shows the autopilot at three levels:
+
+1. **Overview** (the page you land on): one screen across all slots. For each slot: today's plan and the planner's notes, what is queued and when, what published and its first numbers, and what waits for a human (drafts, tasks needing review). A health strip shows the worker loop, the in-app scheduler, the CLI logins and the X API. Quick actions per slot: pause/resume, re-plan today (forgets the day's planner marker so the next worker pass plans again), open the console. Data: `GET /api/agent/overview`, `POST /api/agent/accounts/:slot/replan`.
+2. **Account console** (Accounts): one slot's brief, switches and publishing window, plus its recent activity. `GET/PUT /api/agent/accounts/:slot`.
+3. **Orchestrator** (Settings): the machine view. Worker liveness and recent passes parsed from `logs/worker.log`, the planner, writer and validator commands read from `orchestrator/config.toml` (whitelisted keys only, read-only), CLI logins, X API keys and readiness. Data: `GET /api/system/worker?passes=N`. Set `X_MANAGER_WORKER_INTERVAL_SECONDS` when the launcher interval is not 300 s, and `X_MANAGER_REPO_ROOT` when the checkout cannot be found from the server's working directory (the standalone server runs from `.next/standalone`).

@@ -19,6 +19,7 @@ import {
   Search,
   Settings,
   Target,
+  LayoutDashboard,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -195,6 +196,12 @@ export default function CommandPalette({
 
   const quickActions: QuickAction[] = [
     {
+      id: 'view-overview',
+      label: 'Overview',
+      icon: <LayoutDashboard size={16} />,
+      view: 'dashboard',
+    },
+    {
       id: 'new-post',
       label: 'New Post',
       icon: <Plus size={16} />,
@@ -226,7 +233,7 @@ export default function CommandPalette({
     },
     {
       id: 'settings',
-      label: 'Settings',
+      label: 'Orchestrator',
       icon: <Settings size={16} />,
       view: 'settings',
     },

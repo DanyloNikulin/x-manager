@@ -11,7 +11,7 @@ interface TopbarProps {
 }
 
 const VIEW_TITLES: Record<string, string> = {
-  dashboard: 'Dashboard',
+  dashboard: 'Overview',
   calendar: 'Content Planner',
   discovery: 'Discovery',
   import: 'Import',
@@ -19,7 +19,7 @@ const VIEW_TITLES: Record<string, string> = {
   drafts: 'Draft Manager',
   ops: 'Ops Center',
   accounts: 'Accounts',
-  settings: 'Settings',
+  settings: 'Orchestrator',
 };
 
 export default function Topbar({ activeView, onViewChange, onLogout, onSearchClick }: TopbarProps) {

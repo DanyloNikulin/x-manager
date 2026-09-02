@@ -95,9 +95,18 @@ const labelClass = 'block text-xs font-medium text-slate-500 dark:text-slate-400
 const primaryButton = 'inline-flex items-center gap-1.5 rounded-lg bg-slate-900 dark:bg-slate-100 px-3 py-1.5 text-sm font-medium text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors';
 const secondaryButton = 'inline-flex items-center gap-1.5 rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors';
 
-export default function AccountConsole() {
+interface AccountConsoleProps {
+  /** Slot to open first, e.g. from the Overview's "Open console" action. */
+  initialSlot?: number;
+}
+
+export default function AccountConsole({ initialSlot }: AccountConsoleProps) {
   const [profiles, setProfiles] = useState<ProfileView[]>([]);
-  const [selectedSlot, setSelectedSlot] = useState<number>(1);
+  const [selectedSlot, setSelectedSlot] = useState<number>(initialSlot ?? 1);
+
+  useEffect(() => {
+    if (initialSlot) setSelectedSlot(initialSlot);
+  }, [initialSlot]);
   const [tab, setTab] = useState<Tab>('brief');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

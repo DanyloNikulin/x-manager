@@ -1,20 +1,19 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Lock, ShieldCheck } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Loader2, Lock } from 'lucide-react';
 import CommandPalette from '@/components/ui/CommandPalette';
 import { useKeyboardShortcuts } from '@/components/ui/KeyboardShortcuts';
-import MainDashboard from '@/components/MainDashboard';
+import Overview from '@/components/Overview';
+import OrchestratorPanel from '@/components/OrchestratorPanel';
 import Sidebar from '@/components/layout/Sidebar';
 import Topbar from '@/components/layout/Topbar';
 import Scheduler from '@/components/Scheduler';
 import TopicDiscovery from '@/components/TopicDiscovery';
 import TwitterConnector from '@/components/TwitterConnector';
-import SetupPanel from '@/components/SetupPanel';
 import OpsCenter from '@/components/OpsCenter';
 import Analytics from '@/components/Analytics';
 import DraftManager from '@/components/DraftManager';
-import CliAuthPanel from '@/components/CliAuthPanel';
 import CsvImporter from '@/components/CsvImporter';
 import AddContext from '@/components/AddContext';
 import AccountConsole from '@/components/AccountConsole';
@@ -23,6 +22,7 @@ type AppView = 'dashboard' | 'calendar' | 'discovery' | 'import' | 'ops' | 'anal
 
 export default function Home() {
   const [currentView, setCurrentView] = useState<AppView>('dashboard');
+  const [consoleSlot, setConsoleSlot] = useState<number | undefined>(undefined);
   const [authLoading, setAuthLoading] = useState(true);
   const [authRequired, setAuthRequired] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
@@ -99,9 +99,14 @@ export default function Home() {
     { key: 'k', meta: true, handler: () => setCommandPaletteOpen((v: boolean) => !v), description: 'Open search', category: 'Navigation' },
   ]);
 
+  const openConsole = useCallback((slot: number) => {
+    setConsoleSlot(slot);
+    setCurrentView('accounts');
+  }, []);
+
   const viewBody = useMemo(() => {
     if (currentView === 'dashboard') {
-      return <MainDashboard />;
+      return <Overview onNavigate={(view) => setCurrentView(view as AppView)} onOpenConsole={openConsole} />;
     }
 
     if (currentView === 'calendar') {
@@ -171,27 +176,13 @@ export default function Home() {
             </p>
           </div>
           <TwitterConnector />
-          <AccountConsole />
+          <AccountConsole initialSlot={consoleSlot} />
         </div>
       );
     }
 
-    return (
-      <div className="space-y-4">
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-4 inline-flex items-start gap-3">
-          <ShieldCheck className="h-5 w-5 text-emerald-600 mt-0.5" />
-          <div>
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">System Settings</h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-              API credentials are encrypted at rest when `X_MANAGER_ENCRYPTION_KEY` is configured.
-            </p>
-          </div>
-        </div>
-        <CliAuthPanel />
-        <SetupPanel />
-      </div>
-    );
-  }, [currentView]);
+    return <OrchestratorPanel />;
+  }, [consoleSlot, currentView, openConsole]);
 
   if (authLoading) {
     return (
