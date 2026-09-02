@@ -192,6 +192,36 @@ pub enum TriageDecision {
     Escalate,
 }
 
+// ---------------------------------------------------------------------------
+// Weekly analyst
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalystOutput {
+    /// Required on purpose: the CLI envelope must never parse as an empty analysis.
+    pub report: String,
+    #[serde(default)]
+    pub observations: Vec<String>,
+    #[serde(default)]
+    pub proposals: Vec<Proposal>,
+}
+
+/// One concrete edit to an account-layer field or setting, for the operator to apply.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Proposal {
+    pub target: String,
+    /// Exact text to replace; empty means append.
+    #[serde(default)]
+    pub current: String,
+    pub proposed: String,
+    #[serde(default)]
+    pub rationale: String,
+    #[serde(default)]
+    pub evidence: String,
+    #[serde(default)]
+    pub confidence: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContentCandidate {
     /// The post, or the first tweet when `tweets` is a thread.

@@ -72,6 +72,8 @@ struct TaskCreateRequest<'a> {
     priority: u8,
     assigned_agent: &'a str,
     status: &'a str,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    unique_title: bool,
 }
 
 impl ManagerClient {
@@ -257,6 +259,67 @@ impl ManagerClient {
         Ok(envelope.profile.stored.then_some(envelope.profile))
     }
 
+    /// The account digest the analyst reads: `GET /api/agent/accounts/:slot/digest?days=N`.
+    pub async fn digest(&self, slot: u8, days: u32) -> Result<Value> {
+        let days_value = days.to_string();
+        let envelope = self
+            .request(
+                self.client
+                    .get(format!("{}/api/agent/accounts/{slot}/digest", self.base_url)),
+            )
+            .query(&[("days", days_value.as_str())])
+            .send()
+            .await
+            .context("digest request failed")?
+            .error_for_status()
+            .context("digest request was rejected")?
+            .json::<Value>()
+            .await
+            .context("invalid digest")?;
+        envelope
+            .get("digest")
+            .cloned()
+            .context("digest response has no `digest` field")
+    }
+
+    /// Updates a task's status and details (`PATCH /api/agent/tasks/:id`); used to finish a
+    /// marker that was reserved before a run's side effects.
+    pub async fn update_task(&self, task_id: i64, status: &str, details: &str) -> Result<()> {
+        self.request(
+            self.client
+                .patch(format!("{}/api/agent/tasks/{task_id}", self.base_url)),
+        )
+        .json(&serde_json::json!({ "status": status, "details": details }))
+        .send()
+        .await
+        .context("task update request failed")?
+        .error_for_status()
+        .context("task update was rejected")?;
+        Ok(())
+    }
+
+    /// Appends dated observations to the stored memory field, server-side in one
+    /// transaction (`POST /api/agent/accounts/:slot/memory`), so no read-modify-write
+    /// crosses two requests. `Ok(false)` when the slot has no stored profile.
+    pub async fn append_memory(&self, slot: u8, day: &str, observations: &[String]) -> Result<bool> {
+        let response = self
+            .request(
+                self.client
+                    .post(format!("{}/api/agent/accounts/{slot}/memory", self.base_url)),
+            )
+            .json(&serde_json::json!({ "day": day, "observations": observations }))
+            .send()
+            .await
+            .context("memory append request failed")?;
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(false);
+        }
+        response
+            .error_for_status()
+            .context("memory append was rejected")?;
+        Ok(true)
+    }
+
     /// Returns the id of the active campaign with this name for the slot, creating it if needed.
     pub async fn find_or_create_campaign(
         &self,
@@ -346,6 +409,7 @@ impl ManagerClient {
                 priority,
                 assigned_agent,
                 status,
+                unique_title: false,
             })
             .send()
             .await
@@ -359,6 +423,54 @@ impl ManagerClient {
             .get("task")
             .and_then(|task| task.get("id"))
             .and_then(Value::as_i64)
+            .context("task create response has no id")
+    }
+
+    /// Create-if-absent by title inside the campaign (one immediate transaction on the
+    /// X-Manager side): `Ok(None)` when a task with this title already exists, so a
+    /// once-per-period marker can be reserved atomically before any side effect.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_task_unique(
+        &self,
+        campaign_id: i64,
+        task_type: &str,
+        title: &str,
+        details: &str,
+        priority: u8,
+        assigned_agent: &str,
+        status: &str,
+    ) -> Result<Option<i64>> {
+        let response = self
+            .request(self.client.post(format!(
+                "{}/api/agent/campaigns/{campaign_id}/tasks",
+                self.base_url
+            )))
+            .json(&TaskCreateRequest {
+                task_type,
+                title,
+                details,
+                priority,
+                assigned_agent,
+                status,
+                unique_title: true,
+            })
+            .send()
+            .await
+            .context("task create request failed")?;
+        if response.status() == StatusCode::CONFLICT {
+            return Ok(None);
+        }
+        let response = response
+            .error_for_status()
+            .context("task create was rejected")?
+            .json::<Value>()
+            .await
+            .context("invalid task create response")?;
+        response
+            .get("task")
+            .and_then(|task| task.get("id"))
+            .and_then(Value::as_i64)
+            .map(Some)
             .context("task create response has no id")
     }
 

@@ -15,6 +15,8 @@ pub struct Config {
     pub validator: AgentCommand,
     /// Optional daily planner agent; required once any account sets `posts_per_day`.
     pub planner: Option<AgentCommand>,
+    /// Optional weekly analyst agent; without it no analysis runs.
+    pub analyst: Option<AgentCommand>,
     pub accounts: HashMap<String, AccountConfig>,
     #[serde(skip)]
     pub root: PathBuf,
@@ -42,6 +44,13 @@ pub struct WorkerConfig {
     /// IANA timezone that defines the planner's "day" and `plan_hour`.
     #[serde(default = "default_plan_timezone")]
     pub plan_timezone: String,
+    /// Weekday (0 = Monday … 6 = Sunday) from which the weekly analyst may run, in the
+    /// account's plan timezone.
+    #[serde(default)]
+    pub analyst_weekday: u32,
+    /// Local hour (0-23) on that weekday from which the analyst may run.
+    #[serde(default = "default_analyst_hour")]
+    pub analyst_hour: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -113,6 +122,9 @@ fn default_plan_hour() -> u32 {
 fn default_plan_timezone() -> String {
     "UTC".into()
 }
+fn default_analyst_hour() -> u32 {
+    10
+}
 
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
@@ -173,6 +185,12 @@ impl Config {
         }
         if self.worker.plan_timezone.parse::<chrono_tz::Tz>().is_err() {
             bail!("worker.plan_timezone must be a valid IANA timezone");
+        }
+        if self.worker.analyst_weekday > 6 {
+            bail!("worker.analyst_weekday must be between 0 (Monday) and 6 (Sunday)");
+        }
+        if self.worker.analyst_hour > 23 {
+            bail!("worker.analyst_hour must be between 0 and 23");
         }
         for (slot, account) in &self.accounts {
             if account.posts_per_day > 5 {

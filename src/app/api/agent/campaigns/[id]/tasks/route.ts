@@ -1,6 +1,6 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, sqlite } from '@/lib/db';
 import { campaignTasks, campaigns } from '@/lib/db/schema';
 
 type TaskBody = {
@@ -11,6 +11,12 @@ type TaskBody = {
   priority?: unknown;
   assigned_agent?: unknown;
   status?: unknown;
+  /**
+   * Create-if-absent: when true, the task is only inserted if no task with the same title
+   * exists in the campaign, in one immediate transaction; otherwise 409 with the existing
+   * id. The worker uses it to reserve its once-per-period markers atomically.
+   */
+  unique_title?: unknown;
 };
 
 const ALLOWED_TASK_TYPES = ['post', 'reply', 'dm', 'like', 'research', 'approval'] as const;
@@ -102,6 +108,30 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
     if (body.status !== undefined && !asTaskStatus(body.status)) {
       return NextResponse.json({ error: 'Invalid status.' }, { status: 400 });
+    }
+
+    if (body.unique_title === true) {
+      const reserve = sqlite.transaction(() => {
+        const existing = sqlite
+          .prepare('SELECT id FROM campaign_tasks WHERE campaign_id = ? AND title = ? LIMIT 1')
+          .get(campaignId, title) as { id: number } | undefined;
+        if (existing) return { existing: existing.id };
+        const info = sqlite
+          .prepare(
+            `INSERT INTO campaign_tasks (campaign_id, task_type, title, details, due_at, priority, assigned_agent, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())`,
+          )
+          .run(campaignId, taskType, title, details, dueAt ? Math.floor(dueAt.getTime() / 1000) : null, priority, assignedAgent, statusRaw);
+        return { id: Number(info.lastInsertRowid) };
+      });
+      // BEGIN IMMEDIATE: the check and the insert hold the write lock together, so two
+      // processes reserving the same title cannot both succeed.
+      const result = reserve.immediate();
+      if ('existing' in result) {
+        return NextResponse.json({ error: 'A task with this title already exists in the campaign.', task_id: result.existing }, { status: 409 });
+      }
+      const row = await db.select().from(campaignTasks).where(eq(campaignTasks.id, result.id)).limit(1);
+      return NextResponse.json({ ok: true, task: row[0] });
     }
 
     const inserted = await db.insert(campaignTasks).values({

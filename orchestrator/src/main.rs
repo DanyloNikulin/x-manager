@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
-use x_manager_orchestrator::{config::Config, manager::ManagerClient, planner, worker};
+use x_manager_orchestrator::{analyst, config::Config, manager::ManagerClient, planner, worker};
 
 #[derive(Parser)]
 #[command(name = "x-manager-orchestrator")]
@@ -27,6 +27,12 @@ enum Commands {
     RunOnce,
     /// Run only the daily planner for every account with `posts_per_day > 0`.
     Plan,
+    /// Run the weekly analyst now for every ready account (once per ISO week unless --force).
+    Analyze {
+        /// Ignore the weekly schedule (the weekly marker still prevents a second run).
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[tokio::main]
@@ -52,8 +58,18 @@ async fn main() -> Result<()> {
                 Ok(_) => {}
                 Err(error) => warn!(error = %format!("{error:#}"), "planner pass failed; continuing with worker"),
             }
+            match analyst::analyze_all(&config, &manager, false).await {
+                Ok(ran) if ran > 0 => info!(ran, "analyst recorded analyses"),
+                Ok(_) => {}
+                Err(error) => warn!(error = %format!("{error:#}"), "analyst pass failed; continuing with worker"),
+            }
             let processed = worker::run_once(&config, &manager).await?;
             info!(processed, "worker pass completed");
+            Ok(())
+        }
+        Commands::Analyze { force } => {
+            let ran = analyst::analyze_all(&config, &manager, force).await?;
+            info!(ran, "analyst pass completed");
             Ok(())
         }
         Commands::Plan => {

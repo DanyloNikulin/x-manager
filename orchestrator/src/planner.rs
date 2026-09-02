@@ -158,7 +158,7 @@ pub fn campaign_name(slot: u8) -> String {
     format!("Autopilot slot {slot}")
 }
 
-fn campaign_objective(slot: u8) -> String {
+pub fn campaign_objective(slot: u8) -> String {
     format!(
         "Original posts and replies for account slot {slot} in its own register, one sourced angle per task. \
          Numbers and quotations only from the task's source notes; general context is fine when it is \

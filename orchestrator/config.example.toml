@@ -10,6 +10,8 @@ max_revision_rounds = 1
 # The daily planner runs once per local day, at or after this hour in this timezone.
 plan_hour = 9
 plan_timezone = "America/New_York"
+analyst_weekday = 0
+analyst_hour = 10
 
 [writer]
 program = "claude"
@@ -77,3 +79,20 @@ post_mode = "auto"
 inbound_reply_mode = "auto"
 outbound_reply_mode = "approval"
 posts_per_day = 0
+
+# Weekly analyst: reads the account digest, appends dated observations to the memory field
+# and files at most two proposals per week for the operator (Account console → Proposals).
+# Schedule: from worker.analyst_weekday (0 = Monday) at worker.analyst_hour, once per ISO week.
+[analyst]
+program = "claude"
+args = [
+  "-p",
+  "--output-format", "json",
+  "--json-schema", "{schema_json}",
+  "--tools", "",
+  "--safe-mode",
+  "--strict-mcp-config",
+  "--no-session-persistence"
+]
+schema_path = "schemas/analyst-output.schema.json"
+timeout_seconds = 600

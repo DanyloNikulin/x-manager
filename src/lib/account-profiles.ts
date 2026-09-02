@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { eq } from 'drizzle-orm';
-import { db } from '@/lib/db';
+import { db, sqlite } from '@/lib/db';
 import { accountProfiles, xAccounts } from '@/lib/db/schema';
 import { ACCOUNT_SLOTS, type AccountSlot } from '@/lib/account-slots';
 import {
@@ -120,6 +120,39 @@ export async function saveAccountProfile(slot: AccountSlot, patch: AccountProfil
     .values(values)
     .onConflictDoUpdate({ target: accountProfiles.slot, set: values });
   return getAccountProfile(slot);
+}
+
+/** `memory` plus a dated `## <day> analyst` section with one bullet per observation. */
+export function withObservations(memory: string, day: string, observations: string[]): string {
+  const lines = observations.map((line) => line.trim()).filter(Boolean);
+  let out = memory.replace(/\r\n/g, '\n').replace(/\s+$/, '');
+  if (out) out += '\n\n';
+  out += `## ${day} analyst\n`;
+  for (const line of lines) out += `- ${line}\n`;
+  return out;
+}
+
+/**
+ * Appends dated observations to the stored memory field in one immediate transaction:
+ * the read and the write hold the database's write lock together, so a concurrent edit
+ * of the field (console, proposal) can neither be lost nor overwrite the observations.
+ * Returns null when the slot has no stored profile.
+ */
+export function appendMemoryObservations(slot: AccountSlot, day: string, observations: string[]): { memory: string } | null {
+  const lines = observations.map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) throw new Error('No observations to append.');
+  const append = sqlite.transaction(() => {
+    const row = sqlite.prepare('SELECT memory_md FROM account_profiles WHERE slot = ?').get(slot) as { memory_md: string } | undefined;
+    if (!row) return null;
+    const memory = withObservations(row.memory_md ?? '', day, lines);
+    if (Buffer.byteLength(memory, 'utf8') > MAX_BRIEF_FIELD_BYTES) throw new Error(`memory would exceed ${MAX_BRIEF_FIELD_BYTES} bytes`);
+    const update = sqlite
+      .prepare('UPDATE account_profiles SET memory_md = ?, updated_at = unixepoch() WHERE slot = ? AND memory_md IS ?')
+      .run(memory, slot, row.memory_md);
+    if (update.changes !== 1) throw new Error('memory changed while appending');
+    return { memory };
+  });
+  return append.immediate();
 }
 
 /**

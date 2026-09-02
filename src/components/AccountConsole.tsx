@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, Loader2, RefreshCw, Save, Settings2, Activity as ActivityIcon, Upload, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { BookOpen, Loader2, RefreshCw, Save, Settings2, Activity as ActivityIcon, Upload, AlertCircle, CheckCircle2, Lightbulb } from 'lucide-react';
 import {
   BRIEF_FIELDS,
   MAX_POSTS_PER_DAY,
@@ -64,7 +64,29 @@ type RecentPost = {
   twitterPostId?: string | null;
 };
 
-type Tab = 'brief' | 'behaviour' | 'activity';
+type Tab = 'brief' | 'behaviour' | 'proposals' | 'activity';
+
+/** One analyst proposal as stored in the analysis task's details (see src/lib/proposals.ts). */
+type ProposalView = {
+  target: string;
+  current: string;
+  proposed: string;
+  rationale: string;
+  evidence: string;
+  confidence: number;
+  status: 'open' | 'applied' | 'rejected';
+  decidedAt?: string;
+  previous?: string;
+};
+
+type AnalysisView = {
+  week?: string;
+  report?: string;
+  observations?: string[];
+  proposals?: ProposalView[];
+  error?: string;
+  memory_written?: boolean;
+};
 
 const COMMON_TIMEZONES = ['UTC', 'America/New_York', 'America/Los_Angeles', 'Europe/London', 'Europe/Berlin', 'Europe/Kyiv', 'Asia/Tokyo'];
 
@@ -213,6 +235,7 @@ export default function AccountConsole({ initialSlot }: AccountConsoleProps) {
                 {([
                   ['brief', 'Brief', <BookOpen key="b" className="h-3.5 w-3.5" />],
                   ['behaviour', 'Behaviour', <Settings2 key="s" className="h-3.5 w-3.5" />],
+                  ['proposals', 'Proposals', <Lightbulb key="p" className="h-3.5 w-3.5" />],
                   ['activity', 'Activity', <ActivityIcon key="a" className="h-3.5 w-3.5" />],
                 ] as Array<[Tab, string, React.ReactNode]>).map(([key, label, icon]) => (
                   <button
@@ -230,6 +253,7 @@ export default function AccountConsole({ initialSlot }: AccountConsoleProps) {
 
             {tab === 'brief' && <BriefTab key={`brief-${selected.slot}-${selected.updatedAt ?? 'new'}`} profile={selected} onSaved={handleSaved} onError={setError} />}
             {tab === 'behaviour' && <BehaviourTab key={`behaviour-${selected.slot}-${selected.updatedAt ?? 'new'}`} profile={selected} onSaved={handleSaved} onError={setError} onNotice={setNotice} />}
+            {tab === 'proposals' && <ProposalsTab key={`proposals-${selected.slot}`} slot={selected.slot} onNotice={setNotice} onError={setError} onProfileChanged={() => void loadProfiles()} />}
             {tab === 'activity' && <ActivityTab key={`activity-${selected.slot}`} slot={selected.slot} />}
           </>
         )}
@@ -512,6 +536,155 @@ function BehaviourTab({ profile, onSaved, onError, onNotice }: { profile: Profil
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Proposals (weekly analyst: report, observations, proposals to apply or reject)
+// ---------------------------------------------------------------------------
+
+async function loadAutopilotTasks(slot: number): Promise<CampaignTask[]> {
+  const campaignsResponse = await fetch(`/api/agent/campaigns?account_slot=${slot}`, { cache: 'no-store' });
+  const campaignsData = (await campaignsResponse.json()) as { items?: Array<{ id: number; name: string }>; error?: string };
+  if (!campaignsResponse.ok) throw new Error(campaignsData.error || 'Failed to load campaigns.');
+  const autopilot = (campaignsData.items ?? []).find((campaign) => campaign.name === `Autopilot slot ${slot}`);
+  if (!autopilot) return [];
+  const tasksResponse = await fetch(`/api/agent/campaigns/${autopilot.id}/tasks`, { cache: 'no-store' });
+  const tasksData = (await tasksResponse.json()) as { items?: CampaignTask[]; error?: string };
+  if (!tasksResponse.ok) throw new Error(tasksData.error || 'Failed to load tasks.');
+  return tasksData.items ?? [];
+}
+
+function parseAnalysis(task: CampaignTask): AnalysisView {
+  try {
+    return JSON.parse(task.details ?? '{}') as AnalysisView;
+  } catch {
+    return {};
+  }
+}
+
+function proposalBadge(status: ProposalView['status']): string {
+  if (status === 'applied') return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700';
+  if (status === 'rejected') return 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:border-slate-600';
+  return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700';
+}
+
+function ProposalsTab({ slot, onNotice, onError, onProfileChanged }: { slot: number; onNotice: (m: string) => void; onError: (m: string) => void; onProfileChanged: () => void }) {
+  const [analyses, setAnalyses] = useState<CampaignTask[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    onError('');
+    try {
+      const tasks = await loadAutopilotTasks(slot);
+      setAnalyses(tasks.filter((task) => task.assignedAgent === 'analyst').sort((a, b) => b.id - a.id).slice(0, 8));
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Failed to load analyses.');
+    } finally {
+      setLoading(false);
+    }
+  }, [slot, onError]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const decide = async (taskId: number, index: number, action: 'apply' | 'reject') => {
+    setBusy(`${taskId}:${index}`);
+    onError('');
+    try {
+      const response = await fetch(`/api/agent/tasks/${taskId}/proposals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index, action }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error || 'Failed to decide the proposal.');
+      onNotice(action === 'apply' ? 'Proposal applied to the brief. The worker reads it on its next pass.' : 'Proposal rejected.');
+      if (action === 'apply') onProfileChanged();
+      await load();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Failed to decide the proposal.');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Weekly analyses</h4>
+          <p className="text-xs text-slate-500 dark:text-slate-400">The analyst reads the week's digest, writes observations into memory by itself, and files proposals for you to apply or reject. Nothing else in the brief changes without you.</p>
+        </div>
+        <button onClick={() => void load()} className={secondaryButton} disabled={loading}>
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
+        </button>
+      </div>
+      {analyses.length === 0 ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400">{loading ? 'Loading…' : 'No analysis yet. The analyst runs once a week after the configured hour, or on demand with the orchestrator\'s analyze command.'}</p>
+      ) : (
+        <ul className="space-y-4">
+          {analyses.map((task) => {
+            const analysis = parseAnalysis(task);
+            const proposals = analysis.proposals ?? [];
+            return (
+              <li key={task.id} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{analysis.week ? `Week ${analysis.week}` : task.title}</span>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400">{task.status}</span>
+                </div>
+                {analysis.error && <p className="text-sm text-red-600 dark:text-red-400 whitespace-pre-wrap">{analysis.error}</p>}
+                {analysis.report && <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{analysis.report}</p>}
+                {analysis.observations && analysis.observations.length > 0 && (
+                  <div>
+                    <p className={labelClass}>Observations {analysis.memory_written ? '(written to memory)' : '(not written: no stored profile)'}</p>
+                    <ul className="list-disc pl-5 space-y-0.5 text-sm text-slate-700 dark:text-slate-300">
+                      {analysis.observations.map((line, index) => <li key={index}>{line}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {proposals.length > 0 && (
+                  <div className="space-y-2">
+                    <p className={labelClass}>Proposals</p>
+                    {proposals.map((proposal, index) => (
+                      <div key={index} className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">{proposal.target}</span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">confidence {Math.round(proposal.confidence * 100)}%</span>
+                          <span className={`text-[11px] px-2 py-0.5 rounded-full border ${proposalBadge(proposal.status)}`}>{proposal.status}</span>
+                          {proposal.previous !== undefined && <span className="text-xs text-slate-400 dark:text-slate-500">was {proposal.previous}</span>}
+                        </div>
+                        {proposal.current.trim() ? (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <pre className="text-xs whitespace-pre-wrap break-words rounded bg-red-50 dark:bg-red-900/20 p-2 text-slate-700 dark:text-slate-300">{proposal.current}</pre>
+                            <pre className="text-xs whitespace-pre-wrap break-words rounded bg-emerald-50 dark:bg-emerald-900/20 p-2 text-slate-700 dark:text-slate-300">{proposal.proposed}</pre>
+                          </div>
+                        ) : (
+                          <pre className="text-xs whitespace-pre-wrap break-words rounded bg-emerald-50 dark:bg-emerald-900/20 p-2 text-slate-700 dark:text-slate-300">+ {proposal.proposed}</pre>
+                        )}
+                        <p className="text-xs text-slate-600 dark:text-slate-400"><span className="font-medium">Why:</span> {proposal.rationale}</p>
+                        {proposal.evidence && <p className="text-xs text-slate-500 dark:text-slate-500"><span className="font-medium">Evidence:</span> {proposal.evidence}</p>}
+                        {proposal.status === 'open' && (
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => void decide(task.id, index, 'apply')} disabled={busy !== ''} className={primaryButton}>
+                              {busy === `${task.id}:${index}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Apply
+                            </button>
+                            <button onClick={() => void decide(task.id, index, 'reject')} disabled={busy !== ''} className={secondaryButton}>Reject</button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod analyst;
 pub mod agents;
 pub mod config;
 pub mod formats;
