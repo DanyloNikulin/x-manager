@@ -59,3 +59,15 @@ describe('isValidTimezone', () => {
     expect(isValidTimezone('Nowhere/City')).toBe(false);
   });
 });
+
+describe('reply lane fields', () => {
+  it('accepts the playbook as a brief field and bounds the depth cap', () => {
+    const ok = validateProfilePatch({ playbook: 'answer questions\r\nignore bait', maxRepliesPerConversation: '3' });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.patch).toEqual({ playbook: 'answer questions\nignore bait', maxRepliesPerConversation: 3 });
+    for (const bad of [0, 6, 1.5, 'many']) {
+      const result = validateProfilePatch({ maxRepliesPerConversation: bad });
+      expect(result.ok).toBe(false);
+    }
+  });
+});

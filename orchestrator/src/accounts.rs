@@ -15,7 +15,7 @@ use crate::{
     config::{AccountConfig, Config, PublicationMode},
     manager::ManagerClient,
     models::AccountProfile,
-    worker::load_account_context,
+    worker::{load_account_context, read_optional},
 };
 
 pub const ALL_SLOTS: [u8; 3] = [1, 2, 3];
@@ -34,6 +34,10 @@ pub struct EffectiveAccount {
     pub paused: bool,
     /// Trusted account context in the same section format the prompts always used.
     pub context: String,
+    /// Reply playbook (may be empty); shown to the writer and validator on reply tasks only.
+    pub playbook: String,
+    /// Depth cap the intake applies; repeated to the writer so the prompt and the cap agree.
+    pub max_replies_per_conversation: u32,
     /// Working directory for the CLI agents.
     pub workspace: PathBuf,
     /// "api" or "files" — recorded in audits so the operator knows which brief was used.
@@ -59,12 +63,21 @@ impl EffectiveAccount {
             plan_timezone: profile.plan_timezone,
             paused: profile.status == "paused",
             context,
+            playbook: profile.playbook,
+            max_replies_per_conversation: profile.max_replies_per_conversation,
             workspace,
             source: "api",
         }
     }
 
-    pub fn from_toml(slot: u8, account: &AccountConfig, config: &Config, context: String, workspace: PathBuf) -> Self {
+    pub fn from_toml(
+        slot: u8,
+        account: &AccountConfig,
+        config: &Config,
+        context: String,
+        playbook: String,
+        workspace: PathBuf,
+    ) -> Self {
         Self {
             slot,
             language: account.language.clone(),
@@ -76,6 +89,8 @@ impl EffectiveAccount {
             plan_timezone: config.worker.plan_timezone.clone(),
             paused: false,
             context,
+            playbook,
+            max_replies_per_conversation: crate::models::default_max_replies_per_conversation(),
             workspace,
             source: "files",
         }
@@ -127,7 +142,8 @@ pub async fn resolve_account(
         return Ok(None);
     };
     let context = load_account_context(&workspace, account).await?;
-    Ok(Some(EffectiveAccount::from_toml(slot, account, config, context, workspace)))
+    let playbook = read_optional(&workspace.join("playbook.md")).await?;
+    Ok(Some(EffectiveAccount::from_toml(slot, account, config, context, playbook, workspace)))
 }
 
 #[cfg(test)]
@@ -144,12 +160,14 @@ mod tests {
             voice: "how".into(),
             strategy: "what".into(),
             memory: "learned".into(),
+            playbook: "answer questions".into(),
             post_mode: PublicationMode::Auto,
             inbound_reply_mode: PublicationMode::Approval,
             outbound_reply_mode: PublicationMode::Draft,
             posts_per_day: 1,
             plan_hour: 9,
             plan_timezone: "America/New_York".into(),
+            max_replies_per_conversation: 3,
             stored: true,
         };
         let account = EffectiveAccount::from_profile(profile, PathBuf::from("."));
@@ -157,8 +175,21 @@ mod tests {
             account.context,
             "## profile.md\nwho\n\n## voice.md\nhow\n\n## strategy.md\nwhat\n\n## memory.md\nlearned"
         );
+        // The playbook is not part of the brief context: it reaches reply prompts only.
+        assert_eq!(account.playbook, "answer questions");
+        assert_eq!(account.max_replies_per_conversation, 3);
         assert!(!account.paused);
         assert_eq!(account.source, "api");
+    }
+
+    #[test]
+    fn a_profile_without_reply_fields_gets_the_defaults() {
+        let profile: AccountProfile = serde_json::from_str(
+            r#"{"slot":1,"status":"ready","language":"en","postMode":"auto","inboundReplyMode":"approval","outboundReplyMode":"approval","postsPerDay":1,"planHour":9,"planTimezone":"UTC","stored":true}"#,
+        )
+        .expect("older API shape still parses");
+        assert_eq!(profile.playbook, "");
+        assert_eq!(profile.max_replies_per_conversation, 2);
     }
 
     #[test]
@@ -171,12 +202,14 @@ mod tests {
             voice: String::new(),
             strategy: String::new(),
             memory: String::new(),
+            playbook: String::new(),
             post_mode: PublicationMode::Auto,
             inbound_reply_mode: PublicationMode::Auto,
             outbound_reply_mode: PublicationMode::Auto,
             posts_per_day: 3,
             plan_hour: 9,
             plan_timezone: "UTC".into(),
+            max_replies_per_conversation: 2,
             stored: true,
         };
         assert!(EffectiveAccount::from_profile(profile, PathBuf::from(".")).paused);

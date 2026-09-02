@@ -1,8 +1,9 @@
 import { and, asc, eq, gte } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { campaignTasks, campaigns, engagementInbox } from '@/lib/db/schema';
+import { campaignTasks, campaigns, engagementInbox, scheduledPosts } from '@/lib/db/schema';
 import { ACCOUNT_SLOTS, type AccountSlot } from '@/lib/account-slots';
 import { getAccountProfile } from '@/lib/account-profiles';
+import { PROFILE_DEFAULTS } from '@/lib/account-profile-validation';
 import { requireConnectedAccount } from '@/lib/engagement-ops';
 import { fetchMentionsV2 } from '@/lib/twitter-api-client';
 import { newestTweetId } from '@/lib/mentions-v2';
@@ -11,10 +12,15 @@ import { deliverEventToWebhooks } from '@/lib/webhook-delivery';
 import { logger } from '@/lib/logger';
 import {
   SUBSCRIPTION_AGENT,
+  INBOX_ASSIGNEE_DEPTH_CAP,
   INBOX_ASSIGNEE_UNASSIGNED,
   buildReplyTaskDetails,
+  conversationDepth,
+  exceedsDepthCap,
   replyTaskTitle,
   shouldCreateReplyTask,
+  type MentionLink,
+  type OwnPostLink,
 } from '@/lib/inbox-autopilot-rules';
 
 /**
@@ -134,11 +140,41 @@ async function ensureAutopilotCampaign(slot: AccountSlot): Promise<number> {
   return inserted[0].id;
 }
 
-/** Turn unassigned, recent, inbound mentions into reply tasks. Returns the new task ids. */
+/**
+ * Everything needed to measure how deep a reply chain already is: our published posts by
+ * tweet id (with the tweet they answered, if any) and the stored mentions by tweet id.
+ */
+async function loadConversationLinks(slot: AccountSlot): Promise<{ ownPosts: Map<string, OwnPostLink>; mentions: Map<string, MentionLink> }> {
+  const [posts, mentions] = await Promise.all([
+    db
+      .select({ twitterPostId: scheduledPosts.twitterPostId, replyToTweetId: scheduledPosts.replyToTweetId })
+      .from(scheduledPosts)
+      .where(and(eq(scheduledPosts.accountSlot, slot), eq(scheduledPosts.status, 'posted'))),
+    db
+      .select({ sourceId: engagementInbox.sourceId, conversationId: engagementInbox.conversationId })
+      .from(engagementInbox)
+      .where(and(eq(engagementInbox.accountSlot, slot), eq(engagementInbox.sourceType, 'mention'))),
+  ]);
+  const ownPosts = new Map<string, OwnPostLink>();
+  for (const post of posts) {
+    if (post.twitterPostId) ownPosts.set(post.twitterPostId, { replyToTweetId: post.replyToTweetId ?? null });
+  }
+  const mentionLinks = new Map<string, MentionLink>();
+  for (const mention of mentions) {
+    mentionLinks.set(mention.sourceId, { inReplyToTweetId: mention.conversationId ?? null });
+  }
+  return { ownPosts, mentions: mentionLinks };
+}
+
+/**
+ * Turn unassigned, recent, inbound mentions into reply tasks. Returns the new task ids.
+ * `depthCap` is the account's `maxRepliesPerConversation`.
+ */
 export async function createReplyTasksForNewMentions(
   slot: AccountSlot,
   ownUserId: string | null,
   limit = MAX_REPLY_TASKS_PER_CYCLE,
+  depthCap = PROFILE_DEFAULTS.maxRepliesPerConversation,
 ): Promise<number[]> {
   const since = new Date(Date.now() - MENTION_MAX_AGE_HOURS * 3600 * 1000);
   const rows = await db
@@ -157,16 +193,29 @@ export async function createReplyTasksForNewMentions(
   const candidates = rows.filter((row) => shouldCreateReplyTask(row, ownUserId));
   if (candidates.length === 0) return [];
 
+  const links = await loadConversationLinks(slot);
   const campaignId = await ensureAutopilotCampaign(slot);
   const created: number[] = [];
   for (const row of candidates) {
+    // Depth cap: once we have answered `depthCap` times in this chain, the person gets the
+    // last word. The mention stays visible in the inbox for a human, tagged so the intake
+    // never picks it up again.
+    const depth = conversationDepth({ inReplyToTweetId: row.conversationId ?? null }, links.ownPosts, links.mentions);
+    if (exceedsDepthCap(depth, depthCap)) {
+      await db
+        .update(engagementInbox)
+        .set({ assignedTo: INBOX_ASSIGNEE_DEPTH_CAP, updatedAt: new Date() })
+        .where(eq(engagementInbox.id, row.id));
+      log.info(`slot ${slot}: mention ${row.sourceId} left alone, chain already ${depth} replies deep (cap ${depthCap})`);
+      continue;
+    }
     const inserted = await db
       .insert(campaignTasks)
       .values({
         campaignId,
         taskType: 'reply',
         title: replyTaskTitle(row),
-        details: JSON.stringify(buildReplyTaskDetails(row)),
+        details: JSON.stringify(buildReplyTaskDetails(row, depth)),
         priority: 1,
         assignedAgent: SUBSCRIPTION_AGENT,
         status: 'pending',
@@ -196,7 +245,7 @@ export async function runInboxAutopilotCycle(): Promise<InboxAutopilotSlotStats[
 
     try {
       const sync = await syncMentionsForSlot(slot);
-      const tasks = await createReplyTasksForNewMentions(slot, ownUserId);
+      const tasks = await createReplyTasksForNewMentions(slot, ownUserId, MAX_REPLY_TASKS_PER_CYCLE, profile.maxRepliesPerConversation);
       stats.push({ slot, fetched: sync.fetched, newMentions: sync.created, replyTasks: tasks.length });
       if (sync.created > 0 || tasks.length > 0) {
         log.info(`slot ${slot}: ${sync.created} new mention(s), ${tasks.length} reply task(s) queued`);

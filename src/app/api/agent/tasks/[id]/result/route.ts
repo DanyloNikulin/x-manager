@@ -35,9 +35,28 @@ type ClaimedTask = {
   id: number;
   account_slot: number;
   task_type: string;
+  details: string | null;
   claimed_by: string | null;
   status: string;
 };
+
+/**
+ * The mention a reply task came from, as the intake recorded it in the task details: the
+ * inbox row id and the tweet id the task answers. Both must match the row for it to be
+ * touched, so a malformed or hand-made task can never close somebody else's mention.
+ */
+function originatingMention(details: string | null): { inboxId: number; tweetId: string } | null {
+  if (!details) return null;
+  try {
+    const parsed = JSON.parse(details) as { inbox_id?: unknown; reply_to_tweet_id?: unknown };
+    const inboxId = Number(parsed?.inbox_id);
+    const tweetId = typeof parsed?.reply_to_tweet_id === 'string' ? parsed.reply_to_tweet_id.trim() : '';
+    if (!Number.isInteger(inboxId) || inboxId <= 0 || !tweetId) return null;
+    return { inboxId, tweetId };
+  } catch {
+    return null;
+  }
+}
 
 function asHttpUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -64,9 +83,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: 'worker_id is invalid.' }, { status: 400 });
   }
 
+  // `skipped`: the worker looked at the task and decided, per the account's playbook, not
+  // to answer (a mention that is spam, bait, or already answered enough). Nothing is drafted.
   const outcome = body.outcome;
-  if (outcome !== 'drafted' && outcome !== 'needs_review' && outcome !== 'failed') {
-    return NextResponse.json({ error: 'outcome must be drafted, needs_review, or failed.' }, { status: 400 });
+  if (outcome !== 'drafted' && outcome !== 'needs_review' && outcome !== 'failed' && outcome !== 'skipped') {
+    return NextResponse.json({ error: 'outcome must be drafted, needs_review, failed, or skipped.' }, { status: 400 });
   }
 
   const publicationMode = body.publication_mode === undefined
@@ -96,8 +117,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (draftText.length > MAX_TEXT_LENGTH) {
     return NextResponse.json({ error: 'draft.text is too long.' }, { status: 400 });
   }
-  if (outcome === 'failed' && body.draft !== undefined) {
-    return NextResponse.json({ error: 'draft is not allowed for a failed outcome.' }, { status: 400 });
+  if ((outcome === 'failed' || outcome === 'skipped') && body.draft !== undefined) {
+    return NextResponse.json({ error: `draft is not allowed for a ${outcome} outcome.` }, { status: 400 });
   }
 
   let threadTweets: string[] = [];
@@ -122,7 +143,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   const task = sqlite.prepare(`
-    SELECT ct.id, c.account_slot, ct.task_type, ct.claimed_by, ct.status
+    SELECT ct.id, c.account_slot, ct.task_type, ct.details, ct.claimed_by, ct.status
     FROM campaign_tasks ct
     JOIN campaigns c ON c.id = ct.campaign_id
     WHERE ct.id = ?
@@ -135,6 +156,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (task.status !== 'in_progress' || task.claimed_by !== workerId) {
     return NextResponse.json({ error: 'Task is not claimed by this worker.' }, { status: 409 });
   }
+  // Only a reply can be skipped: a post or thread the worker will not write is a failure or
+  // a review, never a silent skip. This endpoint is the boundary, whatever the worker does.
+  if (outcome === 'skipped' && task.task_type !== 'reply') {
+    return NextResponse.json({ error: 'Only reply tasks can be skipped.' }, { status: 400 });
+  }
+  const skippedMention = outcome === 'skipped' ? originatingMention(task.details) : null;
 
   let autoPublishBlocked: string | null = null;
   if (outcome === 'drafted' && publicationMode === 'auto' && (task.task_type === 'reply' || replyToTweetId)) {
@@ -306,7 +333,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       ? 'done'
       : outcome === 'failed'
         ? 'failed'
-        : 'waiting_approval';
+        : outcome === 'skipped'
+          ? 'skipped'
+          : 'waiting_approval';
     const update = sqlite.prepare(`
       UPDATE campaign_tasks
       SET status = ?, output = ?, updated_at = unixepoch()
@@ -315,6 +344,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     if (update.changes !== 1) {
       throw new Error('Task claim changed while committing the result.');
+    }
+
+    // A skipped reply closes its mention in the same transaction: dismissed, so neither the
+    // intake nor a human treats it as waiting for an answer, and the task can never end up
+    // skipped with its mention still open. Only the originating row qualifies: same id, same
+    // account, a mention, and the very tweet the task answers. A mention that is already
+    // handled, gone, or not the one the task points at is left as it is; the audit of why
+    // stays in the task output.
+    if (skippedMention !== null) {
+      sqlite.prepare(`
+        UPDATE engagement_inbox
+        SET status = 'dismissed', updated_at = unixepoch()
+        WHERE id = ?
+          AND account_slot = ?
+          AND source_type = 'mention'
+          AND source_id = ?
+          AND status IN ('new', 'reviewed')
+      `).run(skippedMention.inboxId, task.account_slot, skippedMention.tweetId);
     }
     return { draftId, scheduledPostId, status: nextStatus };
   })();

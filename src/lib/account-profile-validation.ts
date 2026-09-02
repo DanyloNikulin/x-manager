@@ -9,11 +9,19 @@ export type PublicationMode = (typeof PUBLICATION_MODES)[number];
 export const PROFILE_STATUSES = ['needs-onboarding', 'ready', 'paused'] as const;
 export type ProfileStatus = (typeof PROFILE_STATUSES)[number];
 
-export const BRIEF_FIELDS = ['profile', 'voice', 'strategy', 'memory'] as const;
+/**
+ * The markdown parts of the brief, in the order the console shows them. `playbook` is the
+ * reply playbook: triage classes for what comes in (answer, ignore, escalate), what needs a
+ * source, who is never answered. The worker only shows it to the writer and validator on
+ * reply tasks.
+ */
+export const BRIEF_FIELDS = ['profile', 'voice', 'strategy', 'memory', 'playbook'] as const;
 export type BriefField = (typeof BRIEF_FIELDS)[number];
 
 export const MAX_BRIEF_FIELD_BYTES = 128 * 1024;
 export const MAX_POSTS_PER_DAY = 5;
+/** Upper bound for `maxRepliesPerConversation`: our replies in one chain with one person. */
+export const MAX_REPLIES_PER_CONVERSATION = 5;
 
 export type AccountProfileFields = {
   status: ProfileStatus;
@@ -22,12 +30,15 @@ export type AccountProfileFields = {
   voice: string;
   strategy: string;
   memory: string;
+  playbook: string;
   postMode: PublicationMode;
   inboundReplyMode: PublicationMode;
   outboundReplyMode: PublicationMode;
   postsPerDay: number;
   planHour: number;
   planTimezone: string;
+  /** Depth cap: how many replies this account sends in one chain before it stops answering. */
+  maxRepliesPerConversation: number;
 };
 
 export type AccountProfilePatch = Partial<AccountProfileFields>;
@@ -39,12 +50,14 @@ export const PROFILE_DEFAULTS: AccountProfileFields = {
   voice: '',
   strategy: '',
   memory: '',
+  playbook: '',
   postMode: 'draft',
   inboundReplyMode: 'approval',
   outboundReplyMode: 'approval',
   postsPerDay: 0,
   planHour: 9,
   planTimezone: 'UTC',
+  maxRepliesPerConversation: 2,
 };
 
 export function isValidTimezone(value: string): boolean {
@@ -131,6 +144,15 @@ export function validateProfilePatch(input: unknown): { ok: true; patch: Account
       patch.planTimezone = body.planTimezone.trim();
     } else {
       errors.push('planTimezone must be a valid IANA timezone such as America/New_York');
+    }
+  }
+
+  if (body.maxRepliesPerConversation !== undefined) {
+    const value = Number(body.maxRepliesPerConversation);
+    if (Number.isInteger(value) && value >= 1 && value <= MAX_REPLIES_PER_CONVERSATION) {
+      patch.maxRepliesPerConversation = value;
+    } else {
+      errors.push(`maxRepliesPerConversation must be an integer between 1 and ${MAX_REPLIES_PER_CONVERSATION}`);
     }
   }
 

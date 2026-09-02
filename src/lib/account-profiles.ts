@@ -58,12 +58,14 @@ function rowToProfile(slot: AccountSlot, row: typeof accountProfiles.$inferSelec
     voice: row.voiceMd,
     strategy: row.strategyMd,
     memory: row.memoryMd,
+    playbook: row.playbookMd ?? '',
     postMode: row.postMode,
     inboundReplyMode: row.inboundReplyMode,
     outboundReplyMode: row.outboundReplyMode,
     postsPerDay: row.postsPerDay,
     planHour: row.planHour,
     planTimezone: row.planTimezone,
+    maxRepliesPerConversation: row.maxRepliesPerConversation ?? PROFILE_DEFAULTS.maxRepliesPerConversation,
     updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
     stored: true,
   };
@@ -103,12 +105,14 @@ export async function saveAccountProfile(slot: AccountSlot, patch: AccountProfil
     voiceMd: merged.voice,
     strategyMd: merged.strategy,
     memoryMd: merged.memory,
+    playbookMd: merged.playbook,
     postMode: merged.postMode,
     inboundReplyMode: merged.inboundReplyMode,
     outboundReplyMode: merged.outboundReplyMode,
     postsPerDay: merged.postsPerDay,
     planHour: merged.planHour,
     planTimezone: merged.planTimezone,
+    maxRepliesPerConversation: merged.maxRepliesPerConversation,
     updatedAt: new Date(),
   };
   await db
@@ -118,11 +122,6 @@ export async function saveAccountProfile(slot: AccountSlot, patch: AccountProfil
   return getAccountProfile(slot);
 }
 
-/**
- * Seed a profile from the legacy on-disk workspace (accounts/slot-N/*.md). Only the
- * four brief fields are imported; switches keep their stored values. Returns which
- * files were found so the UI can say what happened.
- */
 /**
  * Where the legacy `accounts/` directory lives. The standalone Next.js server chdirs into
  * `.next/standalone`, so the process cwd is not the repository root in production.
@@ -140,6 +139,11 @@ export function resolveAccountsRoot(cwd: string = process.cwd()): string {
   return cwd;
 }
 
+/**
+ * Seed a profile from the legacy on-disk workspace (accounts/slot-N/*.md). Only the
+ * markdown brief fields are imported (`playbook.md` included when present); switches
+ * keep their stored values. Returns which files were found so the UI can say what happened.
+ */
 export async function importAccountProfileFromFiles(
   slot: AccountSlot,
   rootDir: string = resolveAccountsRoot(),

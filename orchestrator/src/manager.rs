@@ -204,6 +204,22 @@ impl ManagerClient {
         .await
     }
 
+    /// The worker looked at the task and, per the account's playbook, will not answer it.
+    /// X-Manager marks the task `skipped` and closes the mention it came from.
+    pub async fn submit_skipped(&self, task_id: i64, worker_id: &str, output: Value) -> Result<()> {
+        self.submit_result(
+            task_id,
+            ResultRequest {
+                worker_id,
+                outcome: "skipped",
+                output,
+                publication_mode: None,
+                draft: None,
+            },
+        )
+        .await
+    }
+
     pub async fn submit_failure(&self, task_id: i64, worker_id: &str, message: &str) -> Result<()> {
         self.submit_result(
             task_id,

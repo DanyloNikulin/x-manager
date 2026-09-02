@@ -742,6 +742,20 @@ export function ensureSchema(sqlite: SqliteDb): void {
     );
   `);
 
+  // Reply lane: the reply playbook and the per-conversation depth cap on account_profiles
+  ensureColumn(
+    sqlite,
+    'account_profiles',
+    'playbook_md',
+    "ALTER TABLE account_profiles ADD COLUMN playbook_md TEXT NOT NULL DEFAULT ''",
+  );
+  ensureColumn(
+    sqlite,
+    'account_profiles',
+    'max_replies_per_conversation',
+    'ALTER TABLE account_profiles ADD COLUMN max_replies_per_conversation INTEGER NOT NULL DEFAULT 2',
+  );
+
   // P1.4: Approval gating columns on campaign_tasks
   ensureColumn(
     sqlite,

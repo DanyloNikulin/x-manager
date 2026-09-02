@@ -17,15 +17,25 @@ pub struct AccountProfile {
     pub strategy: String,
     #[serde(default)]
     pub memory: String,
+    /// Reply playbook: triage classes and rules for inbound mentions (reply tasks only).
+    #[serde(default)]
+    pub playbook: String,
     pub post_mode: PublicationMode,
     pub inbound_reply_mode: PublicationMode,
     pub outbound_reply_mode: PublicationMode,
     pub posts_per_day: u32,
     pub plan_hour: u32,
     pub plan_timezone: String,
+    /// How many replies the account sends in one chain before the intake stops queueing them.
+    #[serde(default = "default_max_replies_per_conversation")]
+    pub max_replies_per_conversation: u32,
     /// False when the API answered with defaults because no row exists yet.
     #[serde(default)]
     pub stored: bool,
+}
+
+pub fn default_max_replies_per_conversation() -> u32 {
+    2
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -156,8 +166,30 @@ pub struct RecentPostList {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WriterOutput {
+    /// Empty only for a reply the writer decided, per the playbook, not to answer. Deliberately
+    /// required (no default): with a default, the CLI envelope `{"type":"result",...}` would
+    /// deserialize as an empty writer output before the payload is unwrapped.
     pub variants: Vec<ContentCandidate>,
     pub recommended_index: usize,
+    /// Reply tasks only: what the writer made of the parent before (or instead of) writing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub triage: Option<Triage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Triage {
+    pub class: String,
+    pub decision: TriageDecision,
+    #[serde(default)]
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TriageDecision {
+    Answer,
+    Ignore,
+    Escalate,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

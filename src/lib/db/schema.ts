@@ -553,12 +553,16 @@ export const accountProfiles = sqliteTable('account_profiles', {
   voiceMd: text('voice_md').notNull().default(''),
   strategyMd: text('strategy_md').notNull().default(''),
   memoryMd: text('memory_md').notNull().default(''),
+  /** Reply playbook: triage classes and rules the writer applies to inbound mentions. */
+  playbookMd: text('playbook_md').notNull().default(''),
   postMode: text('post_mode', { enum: ['auto', 'approval', 'draft'] }).notNull().default('draft'),
   inboundReplyMode: text('inbound_reply_mode', { enum: ['auto', 'approval', 'draft'] }).notNull().default('approval'),
   outboundReplyMode: text('outbound_reply_mode', { enum: ['auto', 'approval', 'draft'] }).notNull().default('approval'),
   postsPerDay: integer('posts_per_day').notNull().default(0),
   planHour: integer('plan_hour').notNull().default(9),
   planTimezone: text('plan_timezone').notNull().default('UTC'),
+  /** Our replies in one chain with one person before the intake stops making reply tasks. */
+  maxRepliesPerConversation: integer('max_replies_per_conversation').notNull().default(2),
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`),
 });

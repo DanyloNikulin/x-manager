@@ -6,7 +6,7 @@
   "properties": {
     "variants": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 0,
       "maxItems": 3,
       "items": {
         "type": "object",
@@ -28,6 +28,16 @@
         }
       }
     },
-    "recommended_index": { "type": "integer", "minimum": 0, "maximum": 2 }
+    "recommended_index": { "type": "integer", "minimum": 0, "maximum": 2 },
+    "triage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "decision", "reason"],
+      "properties": {
+        "class": { "type": "string", "maxLength": 60 },
+        "decision": { "type": "string", "enum": ["answer", "ignore", "escalate"] },
+        "reason": { "type": "string", "maxLength": 600 }
+      }
+    }
   }
 }

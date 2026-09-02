@@ -5,6 +5,7 @@ import { BookOpen, Loader2, RefreshCw, Save, Settings2, Activity as ActivityIcon
 import {
   BRIEF_FIELDS,
   MAX_POSTS_PER_DAY,
+  MAX_REPLIES_PER_CONVERSATION,
   PROFILE_STATUSES,
   PUBLICATION_MODES,
   type BriefField,
@@ -20,12 +21,14 @@ type ProfileView = {
   voice: string;
   strategy: string;
   memory: string;
+  playbook: string;
   postMode: PublicationMode;
   inboundReplyMode: PublicationMode;
   outboundReplyMode: PublicationMode;
   postsPerDay: number;
   planHour: number;
   planTimezone: string;
+  maxRepliesPerConversation: number;
   updatedAt: string | null;
   stored: boolean;
   connected: boolean;
@@ -70,6 +73,7 @@ const BRIEF_HINTS: Record<BriefField, string> = {
   voice: 'Representative posts, preferred phrasing, forbidden patterns, tone boundaries.',
   strategy: 'Content pillars, target conversations, cadence, conversion goal, topics that need operator review.',
   memory: 'Dated observations about what performed and validated voice lessons. Never secrets or private messages.',
+  playbook: 'Reply playbook: the classes of mentions this account gets (question, pushback, praise, bait, spam, hostile…) and per class whether to answer, ignore, or escalate; what needs a source; who is never answered. Shown to the writer on reply tasks only.',
 };
 
 const MODE_HINTS: Record<PublicationMode, string> = {
@@ -244,6 +248,7 @@ function BriefTab({ profile, onSaved, onError }: { profile: ProfileView; onSaved
     voice: profile.voice,
     strategy: profile.strategy,
     memory: profile.memory,
+    playbook: profile.playbook ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -277,7 +282,7 @@ function BriefTab({ profile, onSaved, onError }: { profile: ProfileView; onSaved
       const response = await fetch(`/api/agent/accounts/${profile.slot}/import`, { method: 'POST' });
       const data = (await response.json()) as { profile?: ProfileView; imported?: string[]; missing?: string[]; error?: string };
       if (!response.ok || !data.profile) throw new Error(data.error || 'Import failed.');
-      setTexts({ profile: data.profile.profile, voice: data.profile.voice, strategy: data.profile.strategy, memory: data.profile.memory });
+      setTexts({ profile: data.profile.profile, voice: data.profile.voice, strategy: data.profile.strategy, memory: data.profile.memory, playbook: data.profile.playbook ?? '' });
       onSaved({ ...profile, ...data.profile }, `Imported ${data.imported?.join(', ') || 'nothing'}${data.missing?.length ? `; missing: ${data.missing.join(', ')}` : ''}.`);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Import failed.');
@@ -330,6 +335,7 @@ function BehaviourTab({ profile, onSaved, onError, onNotice }: { profile: Profil
     postsPerDay: profile.postsPerDay,
     planHour: profile.planHour,
     planTimezone: profile.planTimezone,
+    maxRepliesPerConversation: profile.maxRepliesPerConversation ?? 2,
   });
   const [saving, setSaving] = useState(false);
   const [policy, setPolicy] = useState<SlotPolicy | null>(null);
@@ -443,6 +449,11 @@ function BehaviourTab({ profile, onSaved, onError, onNotice }: { profile: Profil
           <div>
             <label className={labelClass}>Planner timezone</label>
             <input list="xm-timezones" value={form.planTimezone} onChange={(event) => setForm((prev) => ({ ...prev, planTimezone: event.target.value }))} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Replies per conversation (depth cap, 1–{MAX_REPLIES_PER_CONVERSATION})</label>
+            <input type="number" min={1} max={MAX_REPLIES_PER_CONVERSATION} value={form.maxRepliesPerConversation} onChange={(event) => setForm((prev) => ({ ...prev, maxRepliesPerConversation: Number(event.target.value) }))} className={inputClass} />
+            <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">after this many of our replies in one chain, the other person gets the last word; the mention stays in the inbox for you</p>
           </div>
         </div>
         <datalist id="xm-timezones">
