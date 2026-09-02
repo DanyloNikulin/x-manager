@@ -72,8 +72,20 @@ pub struct PlannedTask {
     pub angle: String,
     #[serde(default)]
     pub pillar: String,
+    /// "post" (default) or "thread" for a multi-tweet breakdown of a long read.
+    #[serde(default)]
+    pub format: String,
+    /// Upper bound on tweets for a thread; ignored for posts.
+    #[serde(default)]
+    pub max_tweets: u32,
     #[serde(default)]
     pub source_notes: Vec<SourceNote>,
+}
+
+impl PlannedTask {
+    pub fn is_thread(&self) -> bool {
+        self.format.eq_ignore_ascii_case("thread")
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +93,9 @@ pub struct SourceNote {
     pub url: String,
     #[serde(default)]
     pub note: String,
+    /// Short verbatim excerpts (≤ 30 words each) the writer may quote with attribution.
+    #[serde(default)]
+    pub quotes: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -147,11 +162,28 @@ pub struct WriterOutput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContentCandidate {
+    /// The post, or the first tweet when `tweets` is a thread.
     pub text: String,
+    /// Whole thread, first tweet included; empty for a single post.
+    #[serde(default)]
+    pub tweets: Vec<String>,
     #[serde(default)]
     pub rationale: String,
     #[serde(default)]
     pub sources: Vec<String>,
+}
+
+impl ContentCandidate {
+    /// Trimmed, non-empty tweets when the candidate is a thread (two or more), else empty.
+    pub fn thread_tweets(&self) -> Vec<String> {
+        let tweets: Vec<String> = self
+            .tweets
+            .iter()
+            .map(|tweet| tweet.trim().to_owned())
+            .filter(|tweet| !tweet.is_empty())
+            .collect();
+        if tweets.len() >= 2 { tweets } else { Vec::new() }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

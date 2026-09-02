@@ -70,6 +70,14 @@ The brief (`profile`, `voice`, `strategy`, `memory`) and the autopilot switches 
 
 The worker resolves each slot through `orchestrator/src/accounts.rs`: a stored profile with status `ready` or `paused` wins; otherwise the legacy `[accounts.N]` TOML block plus the workspace files are used, so the web app and the worker can be upgraded in either order. `paused` means the planner skips the slot and the worker never auto-publishes for it. Audits record which source was used (`account_source`). TOML `[accounts.N]` blocks are optional once profiles exist; `workspace` there is still honoured as the CLI working directory.
 
+## Replies (inbox autopilot)
+
+X-Manager pulls the mentions timeline on a timer (`INBOX_SYNC_INTERVAL_SECONDS`, default 900; `DISABLE_INBOX_AUTOPILOT=true` turns it off) for every slot whose stored profile is `ready` and whose X account is connected (`src/lib/inbox-autopilot.ts`). New mentions land in the engagement inbox as before; each new inbound mention by someone else (not retweets, not our own posts) becomes a `reply` task in the slot's `Autopilot slot N` campaign with `reply_kind: inbound`, the parent text and URL as untrusted data, and the inbox item is assigned to `subscription-agent` so it is only taken once (at most 10 per cycle, mentions younger than 48 h). The worker writes and validates the reply; `inbound_reply_mode` decides whether it is scheduled on the next tick, waits in Drafts, or stays a draft. The result endpoint still refuses to auto-publish a reply whose target is not an unanswered inbound mention.
+
+## Threads and quotations
+
+The planner may mark a task `format: "thread"` with `max_tweets` (2–8) when a long read deserves a multi-tweet breakdown, and for such tasks its `source_notes` carry up to three short verbatim quotes per source. The writer returns the whole thread in the variant's `tweets` array (first tweet repeated in `text`); each tweet must fit 280 weighted characters, quotations are allowed only verbatim from the source notes, in quotation marks with attribution, and the last tweet carries the source URL. The validator checks every tweet and blocks invented or altered quotations. In auto mode the result endpoint schedules the thread through the thread scheduler (dedupe-keyed on the source URL, so retries are idempotent); otherwise the thread is stored as one draft whose tweets are separated by `---`, and Drafts → Schedule rebuilds it via `POST /api/scheduler/thread`.
+
 ## Daily planner
 
 Nothing has to create tasks by hand. When an account sets `posts_per_day` (1–5) and the config has a `[planner]` section, every `run-once` pass first runs the planner (`orchestrator/src/planner.rs`), then the worker picks up whatever it queued:

@@ -39,9 +39,21 @@ struct ResultRequest<'a> {
 struct DraftRequest<'a> {
     text: &'a str,
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    tweets: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     media_urls: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reply_to_tweet_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_url: Option<&'a str>,
+}
+
+/// Everything the worker hands back about one piece of content.
+pub struct DraftPayload<'a> {
+    pub text: &'a str,
+    pub tweets: &'a [String],
+    pub reply_to_tweet_id: Option<&'a str>,
+    pub source_url: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -143,8 +155,7 @@ impl ManagerClient {
         &self,
         task_id: i64,
         worker_id: &str,
-        text: &str,
-        reply_to_tweet_id: Option<&str>,
+        draft: DraftPayload<'_>,
         publication_mode: PublicationMode,
         output: Value,
     ) -> Result<()> {
@@ -156,9 +167,11 @@ impl ManagerClient {
                 output,
                 publication_mode: Some(publication_mode),
                 draft: Some(DraftRequest {
-                    text,
+                    text: draft.text,
+                    tweets: draft.tweets.to_vec(),
                     media_urls: vec![],
-                    reply_to_tweet_id,
+                    reply_to_tweet_id: draft.reply_to_tweet_id,
+                    source_url: draft.source_url,
                 }),
             },
         )
@@ -169,8 +182,7 @@ impl ManagerClient {
         &self,
         task_id: i64,
         worker_id: &str,
-        text: Option<&str>,
-        reply_to_tweet_id: Option<&str>,
+        draft: Option<DraftPayload<'_>>,
         output: Value,
     ) -> Result<()> {
         self.submit_result(
@@ -180,10 +192,12 @@ impl ManagerClient {
                 outcome: "needs_review",
                 output,
                 publication_mode: None,
-                draft: text.map(|text| DraftRequest {
-                    text,
+                draft: draft.map(|draft| DraftRequest {
+                    text: draft.text,
+                    tweets: draft.tweets.to_vec(),
                     media_urls: vec![],
-                    reply_to_tweet_id,
+                    reply_to_tweet_id: draft.reply_to_tweet_id,
+                    source_url: draft.source_url,
                 }),
             },
         )

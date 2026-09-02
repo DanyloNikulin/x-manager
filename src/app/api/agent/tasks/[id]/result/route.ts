@@ -6,6 +6,8 @@ import { deliverEventToWebhooks } from '@/lib/webhook-delivery';
 import { checkPolicy, getSlotPolicy } from '@/lib/policy';
 import { suggestMultipleOptimalTimes, suggestOptimalTime } from '@/lib/optimal-time';
 import { planWorkerPublishTime, type PublishPlan } from '@/lib/worker-publish';
+import { scheduleThread } from '@/lib/thread-scheduler';
+import { joinThreadDraft, validateThreadTweets } from '@/lib/thread-draft';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,8 +22,12 @@ type ResultBody = {
   publication_mode?: unknown;
   draft?: {
     text?: unknown;
+    /** Whole thread, first tweet included. Present only for thread tasks. */
+    tweets?: unknown;
     media_urls?: unknown;
     reply_to_tweet_id?: unknown;
+    /** Primary source of the content; becomes the thread's dedupe/source URL. */
+    source_url?: unknown;
   };
 };
 
@@ -32,6 +38,12 @@ type ClaimedTask = {
   claimed_by: string | null;
   status: string;
 };
+
+function asHttpUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return /^https?:\/\//i.test(trimmed) ? trimmed : null;
+}
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: rawId } = await params;
@@ -88,12 +100,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: 'draft is not allowed for a failed outcome.' }, { status: 400 });
   }
 
+  let threadTweets: string[] = [];
+  if (body.draft?.tweets !== undefined) {
+    const validated = validateThreadTweets(body.draft.tweets);
+    if (!validated.ok) {
+      return NextResponse.json({ error: validated.error }, { status: 400 });
+    }
+    threadTweets = validated.tweets;
+  }
+  const isThread = threadTweets.length >= 2;
+
   const mediaUrls = Array.isArray(body.draft?.media_urls)
     ? body.draft.media_urls.filter((item): item is string => typeof item === 'string').slice(0, 4)
     : [];
   const replyToTweetId = typeof body.draft?.reply_to_tweet_id === 'string'
     ? body.draft.reply_to_tweet_id.trim() || null
     : null;
+  const sourceUrl = asHttpUrl(body.draft?.source_url);
+  if (isThread && replyToTweetId) {
+    return NextResponse.json({ error: 'A thread cannot be a reply.' }, { status: 400 });
+  }
 
   const task = sqlite.prepare(`
     SELECT ct.id, c.account_slot, ct.task_type, ct.claimed_by, ct.status
@@ -181,6 +207,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const publication = {
         requested: publicationMode,
         effective: effectivePublicationMode,
+        format: isThread ? 'thread' : 'post',
         ...(autoPublishBlocked ? { blocked_reason: autoPublishBlocked } : {}),
         ...(publishPlan ? { scheduled_for: publishPlan.scheduledAt.toISOString(), plan: publishPlan.source } : {}),
       };
@@ -197,10 +224,39 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: 'output is too large after publication metadata was added.' }, { status: 413 });
   }
 
+  // Threads in auto mode go through the thread scheduler (async, dedupe-keyed on the source URL,
+  // hence idempotent on retries). It runs before the task-status transaction below.
+  let threadId: string | null = null;
+  let threadScheduledPostId: number | null = null;
+  let threadScheduledCount = 0;
+  if (isThread && outcome === 'drafted' && effectivePublicationMode === 'auto') {
+    const result = await scheduleThread({
+      accountSlot: task.account_slot as 1 | 2 | 3,
+      scheduledTime: new Date(scheduledEpoch * 1000),
+      tweets: threadTweets.map((text) => ({ text })),
+      dedupe: true,
+      sourceUrl,
+    });
+    threadId = result.threadId;
+    if (result.skipped) {
+      const duplicate = result.duplicates?.[0] as { id?: number } | undefined;
+      threadScheduledPostId = typeof duplicate?.id === 'number' ? duplicate.id : null;
+      if (threadScheduledPostId === null) {
+        return NextResponse.json({ error: 'Thread was deduplicated but the existing post could not be resolved.' }, { status: 409 });
+      }
+    } else {
+      const first = result.posts[0] as { id?: number } | undefined;
+      threadScheduledPostId = typeof first?.id === 'number' ? first.id : null;
+      threadScheduledCount = result.scheduled;
+    }
+  }
+
   const commitResult = sqlite.transaction(() => {
     let draftId: number | null = null;
     let scheduledPostId: number | null = null;
-    if (draftText && outcome === 'drafted' && effectivePublicationMode === 'auto') {
+    if (isThread && outcome === 'drafted' && effectivePublicationMode === 'auto') {
+      scheduledPostId = threadScheduledPostId;
+    } else if (draftText && outcome === 'drafted' && effectivePublicationMode === 'auto') {
       const dedupeKey = replyToTweetId
         ? `subscription-worker:reply:${replyToTweetId}`
         : `subscription-worker:task:${taskId}`;
@@ -238,10 +294,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         ) VALUES (?, ?, ?, ?, ?, unixepoch(), unixepoch())
       `).run(
         task.account_slot,
-        draftText,
+        isThread ? joinThreadDraft(threadTweets) : draftText,
         mediaUrls.length > 0 ? JSON.stringify(mediaUrls) : null,
         replyToTweetId,
-        `subscription-worker:${autoPublishBlocked ? 'auto-blocked' : outcome}:task:${taskId}`,
+        `subscription-worker:${autoPublishBlocked ? 'auto-blocked' : outcome}:${isThread ? 'thread:' : ''}task:${taskId}`,
       );
       draftId = Number(inserted.lastInsertRowid);
     }
@@ -273,6 +329,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         payload: {
           scheduledTime: new Date(scheduledEpoch * 1000).toISOString(),
           source: `subscription-worker:task:${taskId}`,
+          ...(threadId ? { threadId, tweets: threadTweets.length } : {}),
         },
       };
       const eventId = emitEvent(event);
@@ -290,6 +347,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     auto_publish_blocked: autoPublishBlocked,
     scheduled_for: commitResult.scheduledPostId !== null ? new Date(scheduledEpoch * 1000).toISOString() : null,
     publish_plan: publishPlan?.source ?? null,
+    format: isThread ? 'thread' : 'post',
+    thread_id: threadId,
+    thread_scheduled: threadScheduledCount,
     ...commitResult,
   });
 }

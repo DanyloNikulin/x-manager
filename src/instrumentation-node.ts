@@ -107,6 +107,18 @@ export function registerNodeInstrumentation(): void {
     log.info('Webhook delivery recovery complete.');
   });
 
+  // Ring 4: mentions are pulled on a timer and each new inbound mention becomes a reply task
+  // for the subscription worker (the account's inbound_reply_mode decides what happens next).
+  if (process.env.DISABLE_INBOX_AUTOPILOT === 'true') {
+    log.info('Inbox autopilot disabled via DISABLE_INBOX_AUTOPILOT.');
+  } else {
+    const inboxInterval = Math.max(120, Number(process.env.INBOX_SYNC_INTERVAL_SECONDS) || 900);
+    void startWithRetry('Inbox autopilot', async () => {
+      const { startInboxAutopilotLoop } = await import('./lib/inbox-autopilot');
+      startInboxAutopilotLoop({ intervalSeconds: inboxInterval });
+      log.info(`Inbox autopilot started (${inboxInterval}s interval).`);
+    });
+  }
   if (process.env.DISABLE_METRICS_COLLECTOR === 'true') {
     log.info('Metrics collector disabled via DISABLE_METRICS_COLLECTOR.');
   } else {

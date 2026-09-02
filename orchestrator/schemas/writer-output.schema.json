@@ -11,9 +11,14 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["text", "rationale", "sources"],
+        "required": ["text", "tweets", "rationale", "sources"],
         "properties": {
           "text": { "type": "string", "minLength": 1, "maxLength": 25000 },
+          "tweets": {
+            "type": "array",
+            "maxItems": 12,
+            "items": { "type": "string", "minLength": 1, "maxLength": 2000 }
+          },
           "rationale": { "type": "string", "maxLength": 2000 },
           "sources": {
             "type": "array",

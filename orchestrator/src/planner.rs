@@ -85,6 +85,8 @@ pub async fn plan_day(config: &Config, manager: &ManagerClient) -> Result<usize>
                         "topic": planned.topic,
                         "angle": planned.angle,
                         "pillar": planned.pillar,
+                        "format": if planned.is_thread() { "thread" } else { "post" },
+                        "max_tweets": if planned.is_thread() { planned.max_tweets.clamp(2, 12) } else { 1 },
                         "source_notes": planned.source_notes,
                         "planner": {
                             "day": day,
@@ -222,10 +224,10 @@ BUDGET: at most {budget} task(s) today.
 
 Work order: first run at least two web searches across the strategy pillars for material published in the last 7 days, open the most promising pages, then decide. Aim to fill the budget with the strongest sourced angle you found; return an empty list only when, after searching, nothing genuinely fits the account. Do not skip the search.
 
-For each task give: topic; angle (the account's specific take in its register, one or two sentences); pillar (which strategy pillar it serves); source_notes (1-3 entries: a URL you actually opened plus the concrete facts and numbers from that page that the writer may use). Never invent numbers and never cite a page you did not open. Skip anything the strategy marks as needing operator review. In notes, say what you searched, what you rejected and why (two or three sentences).
+For each task give: topic; angle (the account's specific take in its register, one or two sentences); pillar (which strategy pillar it serves); format ("post" for a single post, "thread" when a long read deserves a multi-tweet breakdown — a report, an investigation, a long interview, a dense technical piece); max_tweets (2-8, threads only); source_notes (1-3 entries: a URL you actually opened, the concrete facts and numbers from that page that the writer may use, and for threads 1-3 short verbatim quotes of at most 30 words each copied exactly from that page, which the writer may quote with attribution). Never invent numbers, never cite a page you did not open, never paraphrase inside quotes. Skip anything the strategy marks as needing operator review. In notes, say what you searched, what you rejected and why (two or three sentences).
 
 Return JSON only matching the configured schema:
-{{"tasks":[{{"topic":"...","angle":"...","pillar":"...","source_notes":[{{"url":"...","note":"..."}}]}}],"notes":"..."}}"#,
+{{"tasks":[{{"topic":"...","angle":"...","pillar":"...","format":"post","max_tweets":1,"source_notes":[{{"url":"...","note":"...","quotes":["..."]}}]}}],"notes":"..."}}"#,
         account_context = account.context,
         timezone = account.plan_timezone,
         language = account.language,
@@ -243,8 +245,18 @@ mod tests {
             topic: topic.into(),
             angle: "an angle".into(),
             pillar: "pillar".into(),
-            source_notes: vec![SourceNote { url: url.into(), note: "fact".into() }],
+            format: "post".into(),
+            max_tweets: 1,
+            source_notes: vec![SourceNote { url: url.into(), note: "fact".into(), quotes: Vec::new() }],
         }
+    }
+
+    #[test]
+    fn thread_format_is_recognised_case_insensitively() {
+        let mut task = planned("topic", "https://example.com/x");
+        assert!(!task.is_thread());
+        task.format = "Thread".into();
+        assert!(task.is_thread());
     }
 
     #[test]

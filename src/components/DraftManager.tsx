@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { isThreadDraftSource, splitThreadDraft } from '@/lib/thread-draft';
 import {
   FileText,
   Trash2,
@@ -183,15 +184,34 @@ export default function DraftManager() {
     setError('');
     try {
       const scheduledTime = new Date(scheduleDateTime).toISOString();
-      const fd = new FormData();
-      fd.append('text', draft.text);
-      fd.append('scheduled_time', scheduledTime);
-      fd.append('account_slot', String(draft.accountSlot));
+      if (isThreadDraftSource(draft.source)) {
+        // Worker threads are stored as one draft; rebuild the thread for the scheduler.
+        const tweets = splitThreadDraft(draft.text);
+        const threadRes = await fetch('/api/scheduler/thread', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            account_slot: draft.accountSlot,
+            scheduled_time: scheduledTime,
+            dedupe: true,
+            tweets: tweets.map((text) => ({ text })),
+          }),
+        });
+        if (!threadRes.ok) {
+          const body = await threadRes.json();
+          throw new Error(body.error || 'Failed to schedule thread.');
+        }
+      } else {
+        const fd = new FormData();
+        fd.append('text', draft.text);
+        fd.append('scheduled_time', scheduledTime);
+        fd.append('account_slot', String(draft.accountSlot));
 
-      const postRes = await fetch('/api/scheduler/posts', { method: 'POST', body: fd });
-      if (!postRes.ok) {
-        const body = await postRes.json();
-        throw new Error(body.error || 'Failed to schedule post.');
+        const postRes = await fetch('/api/scheduler/posts', { method: 'POST', body: fd });
+        if (!postRes.ok) {
+          const body = await postRes.json();
+          throw new Error(body.error || 'Failed to schedule post.');
+        }
       }
 
       // On success, delete the draft
@@ -316,6 +336,12 @@ export default function DraftManager() {
                   {draft.source && (
                     <span className="rounded-full bg-teal-50 dark:bg-teal-900/50 border border-teal-200 dark:border-teal-700 px-2 py-0.5 text-xs font-medium text-teal-700 dark:text-teal-300">
                       {draft.source}
+                    </span>
+                  )}
+
+                  {isThreadDraftSource(draft.source) && (
+                    <span className="rounded-full bg-indigo-50 dark:bg-indigo-900/40 border border-indigo-200 dark:border-indigo-700 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:text-indigo-300">
+                      thread · {splitThreadDraft(draft.text).length} tweets
                     </span>
                   )}
 
