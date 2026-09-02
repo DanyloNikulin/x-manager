@@ -18,6 +18,8 @@ interface Draft {
   accountSlot: number;
   text: string;
   source: string | null;
+  /** Set when the draft answers a tweet; scheduling must keep it, or the reply posts as a standalone post. */
+  replyToTweetId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -206,6 +208,7 @@ export default function DraftManager() {
         fd.append('text', draft.text);
         fd.append('scheduled_time', scheduledTime);
         fd.append('account_slot', String(draft.accountSlot));
+        if (draft.replyToTweetId) fd.append('reply_to_tweet_id', draft.replyToTweetId);
 
         const postRes = await fetch('/api/scheduler/posts', { method: 'POST', body: fd });
         if (!postRes.ok) {

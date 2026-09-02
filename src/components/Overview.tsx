@@ -1,26 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  AlertTriangle,
-  CalendarClock,
-  Cpu,
-  ExternalLink,
-  Eye,
-  FileText,
-  Heart,
-  KeyRound,
-  Loader2,
-  MessageCircle,
-  Pause,
-  Play,
-  Radio,
-  RefreshCw,
-  Repeat2,
-  RotateCcw,
-  Settings2,
-  TerminalSquare,
-} from 'lucide-react';
+import { AlertTriangle, CalendarClock, Cpu, ExternalLink, Eye, FileText, Heart, KeyRound, Loader2, MessageCircle, Pause, Play, Radio, RefreshCw, Repeat2, RotateCcw, Settings2, TerminalSquare, Check, X } from 'lucide-react';
 import type { Overview as OverviewPayload, OverviewPost, OverviewTask, SlotOverview } from '@/lib/overview-model';
 
 /**
@@ -209,8 +190,10 @@ function taskLabel(task: OverviewTask): string {
   return task.status;
 }
 
-function TaskRow({ task, now }: { task: OverviewTask; now: number }) {
+function TaskRow({ task, now, busy, onReview }: { task: OverviewTask; now: number; busy?: string | null; onReview?: (taskId: number, action: 'approve' | 'reject') => void }) {
   const tone: Tone = task.status === 'waiting_approval' ? 'warn' : task.status === 'in_progress' ? 'good' : 'muted';
+  const reviewable = task.status === 'waiting_approval' && Boolean(onReview);
+  const working = busy === `review-${task.id}`;
   return (
     <li className="flex items-start gap-2 text-sm">
       <Badge tone={tone}>{taskLabel(task)}</Badge>
@@ -222,6 +205,16 @@ function TaskRow({ task, now }: { task: OverviewTask; now: number }) {
           {task.updatedAt ? ` · ${relative(task.updatedAt, now)}` : ''}
         </span>
       </span>
+      {reviewable && (
+        <span className="flex shrink-0 items-center gap-1">
+          <button type="button" onClick={() => onReview?.(task.id, 'approve')} disabled={Boolean(busy)} className={primaryButton} title="Schedule the worker's draft and close the task">
+            {working ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Approve
+          </button>
+          <button type="button" onClick={() => onReview?.(task.id, 'reject')} disabled={Boolean(busy)} className={secondaryButton} title="Delete the draft and skip the task">
+            <X size={14} /> Reject
+          </button>
+        </span>
+      )}
     </li>
   );
 }
@@ -249,6 +242,7 @@ function SlotCard({
   onOpenConsole,
   onSetStatus,
   onReplan,
+  onReview,
 }: {
   slot: SlotOverview;
   now: number;
@@ -257,6 +251,7 @@ function SlotCard({
   onOpenConsole: (slot: number) => void;
   onSetStatus: (slot: number, status: 'ready' | 'paused') => void;
   onReplan: (slot: number) => void;
+  onReview: (taskId: number, action: 'approve' | 'reject') => void;
 }) {
   const handle = slot.username ? `@${slot.username}` : `Slot ${slot.slot}`;
   const timeZone = slot.planTimezone || 'UTC';
@@ -435,7 +430,7 @@ function SlotCard({
                   <li className="text-xs text-slate-400 dark:text-slate-500">+ {slot.draftCount - slot.drafts.length} more drafts</li>
                 )}
                 {slot.waitingApproval.map((task) => (
-                  <TaskRow key={`task-${task.id}`} task={task} now={now} />
+                  <TaskRow key={`task-${task.id}`} task={task} now={now} busy={busy} onReview={onReview} />
                 ))}
               </ul>
             </div>
@@ -549,6 +544,29 @@ export default function Overview({ onNavigate, onOpenConsole }: OverviewProps) {
     [flash, load],
   );
 
+  const review = useCallback(
+    async (taskId: number, action: 'approve' | 'reject') => {
+      if (action === 'reject' && !window.confirm(`Reject task ${taskId}? Its draft is deleted and the task is skipped.`)) return;
+      setBusy(`review-${taskId}`);
+      try {
+        const response = await fetch(`/api/agent/tasks/${taskId}/review`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action }),
+        });
+        const body = (await response.json()) as { error?: string; scheduledFor?: string | null; status?: string };
+        if (!response.ok) throw new Error(body.error || 'Failed to review the task.');
+        flash(action === 'approve' ? `Approved: scheduled for ${body.scheduledFor ? new Date(body.scheduledFor).toLocaleString() : 'the next slot'}.` : `Task ${taskId} rejected; its draft is gone.`);
+        await load(true);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to review the task.');
+      } finally {
+        setBusy(null);
+      }
+    },
+    [flash, load],
+  );
+
   const health = useMemo(() => {
     const workerPill = (() => {
       if (!worker) return { tone: 'muted' as Tone, value: 'no data' };
@@ -645,6 +663,7 @@ export default function Overview({ onNavigate, onOpenConsole }: OverviewProps) {
           onOpenConsole={onOpenConsole}
           onSetStatus={(target, status) => void setStatus(target, status)}
           onReplan={(target) => void replan(target)}
+          onReview={(taskId, action) => void review(taskId, action)}
         />
       ))}
     </div>
