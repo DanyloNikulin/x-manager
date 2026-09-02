@@ -208,3 +208,9 @@ Each sprint should include basic TypeScript check + build verification. Integrat
 
 ### Agent Manifest
 Update `GET /api/system/agent` response after each sprint to include new endpoints.
+
+---
+
+## Autopilot roles (2026-09)
+
+The feature sprints above are complete. The plan for the autopilot layer (roles per account, two prompt layers, ring order) lives in `docs/autopilot-roadmap.md`.
