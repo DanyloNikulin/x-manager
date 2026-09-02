@@ -1,9 +1,10 @@
+import { randomUUID } from 'crypto';
+
 import { sqlite } from '@/lib/db';
 import { isAccountSlot, type AccountSlot } from '@/lib/account-slots';
 import { checkPolicy, getSlotPolicy } from '@/lib/policy';
 import { suggestMultipleOptimalTimes, suggestOptimalTime } from '@/lib/optimal-time';
 import { planWorkerPublishTime } from '@/lib/worker-publish';
-import { scheduleThread } from '@/lib/thread-scheduler';
 import { isThreadDraftSource, splitThreadDraft } from '@/lib/thread-draft';
 
 /**
@@ -82,11 +83,15 @@ async function planTime(slot: AccountSlot, actionType: 'post' | 'reply', now: Da
   return plan.scheduledAt;
 }
 
+/** Test hook: runs after planning and before the transactional write (simulates a concurrent decision). */
+export type ReviewOptions = { now?: Date; beforeWrite?: () => void };
+
 export async function reviewTask(
   taskId: number,
   action: ReviewAction,
-  now: Date = new Date(),
+  options: ReviewOptions = {},
 ): Promise<{ status: string; scheduledPostId: number | null; scheduledFor: string | null; threadId: string | null }> {
+  const now = options.now ?? new Date();
   const task = loadTask(taskId);
   if (!task) throw new ReviewError('Task not found.', 404);
   if (task.status !== 'waiting_approval') throw new ReviewError(`Task is ${task.status}, not waiting for review.`, 409);
@@ -108,40 +113,48 @@ export async function reviewTask(
 
   if (!draft) throw new ReviewError('This task has no draft left to approve (it may have been scheduled or deleted from Drafts).', 409);
 
-  if (isThreadDraftSource(draft.source)) {
-    const tweets = splitThreadDraft(draft.text);
-    if (tweets.length < 2) throw new ReviewError('The thread draft has fewer than two tweets.', 409);
-    const scheduledAt = await planTime(slot, 'post', now);
-    const result = await scheduleThread({ accountSlot: slot, scheduledTime: scheduledAt, tweets: tweets.map((text) => ({ text })), dedupe: true });
-    const first = result.posts?.[0] as { id?: number } | undefined;
-    const scheduledPostId = typeof first?.id === 'number' ? first.id : null;
-    sqlite.transaction(() => {
-      sqlite.prepare('DELETE FROM draft_posts WHERE id = ?').run(draft.id);
-      const update = sqlite
-        .prepare(`UPDATE campaign_tasks SET status = 'done', output = ?, updated_at = unixepoch() WHERE id = ? AND status = 'waiting_approval'`)
-        .run(mergedOutput(task.output, { action: 'approve', at, scheduled_for: scheduledAt.toISOString(), thread_id: result.threadId, scheduled_post_id: scheduledPostId }), taskId);
-      if (update.changes !== 1) throw new ReviewError('Task changed while approving; reload.', 409);
-    })();
-    return { status: 'done', scheduledPostId, scheduledFor: scheduledAt.toISOString(), threadId: result.threadId };
-  }
-
-  const actionType = draft.reply_to_tweet_id ? 'reply' : 'post';
+  // What gets scheduled: one row for a post or reply, one row per tweet for a thread
+  // (same shape the thread scheduler writes: shared thread_id, ascending thread_index, the
+  // scheduler service chains index > 0 as replies to the previous tweet once it is posted).
+  const isThread = isThreadDraftSource(draft.source);
+  const tweets = isThread ? splitThreadDraft(draft.text) : [draft.text];
+  if (isThread && tweets.length < 2) throw new ReviewError('The thread draft has fewer than two tweets.', 409);
+  const actionType = !isThread && draft.reply_to_tweet_id ? 'reply' : 'post';
   const scheduledAt = await planTime(slot, actionType, now);
   const scheduledEpoch = Math.floor(scheduledAt.getTime() / 1000);
+  const threadId = isThread ? randomUUID() : null;
+
+  options.beforeWrite?.();
+
+  // One transaction: the rows, the draft deletion and the guarded task update commit
+  // together or not at all, so a concurrent rejection (or any failure) can never leave a
+  // scheduled thread behind a task that is not done.
   const scheduledPostId = sqlite.transaction(() => {
-    const inserted = sqlite
-      .prepare(
-        `INSERT INTO scheduled_posts (account_slot, text, dedupe_key, media_urls, reply_to_tweet_id, scheduled_time, status, tags, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'scheduled', ?, unixepoch(), unixepoch())`,
-      )
-      .run(slot, draft.text, `subscription-worker:review:task:${taskId}`, draft.media_urls ?? '[]', draft.reply_to_tweet_id, scheduledEpoch, JSON.stringify(['subscription-worker', 'approved']));
-    const id = Number(inserted.lastInsertRowid);
+    const insert = sqlite.prepare(
+      `INSERT INTO scheduled_posts (account_slot, text, dedupe_key, media_urls, reply_to_tweet_id, thread_id, thread_index, scheduled_time, status, tags, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, unixepoch(), unixepoch())`,
+    );
+    let firstId: number | null = null;
+    tweets.forEach((text, index) => {
+      const inserted = insert.run(
+        slot,
+        text,
+        isThread ? `subscription-worker:review:task:${taskId}:${index}` : `subscription-worker:review:task:${taskId}`,
+        index === 0 ? (draft.media_urls ?? '[]') : '[]',
+        isThread ? null : draft.reply_to_tweet_id,
+        threadId,
+        isThread ? index : null,
+        scheduledEpoch,
+        JSON.stringify(['subscription-worker', 'approved']),
+      );
+      if (index === 0) firstId = Number(inserted.lastInsertRowid);
+    });
     sqlite.prepare('DELETE FROM draft_posts WHERE id = ?').run(draft.id);
     const update = sqlite
       .prepare(`UPDATE campaign_tasks SET status = 'done', output = ?, updated_at = unixepoch() WHERE id = ? AND status = 'waiting_approval'`)
-      .run(mergedOutput(task.output, { action: 'approve', at, scheduled_for: scheduledAt.toISOString(), scheduled_post_id: id }), taskId);
+      .run(mergedOutput(task.output, { action: 'approve', at, scheduled_for: scheduledAt.toISOString(), scheduled_post_id: firstId, thread_id: threadId, tweets: tweets.length }), taskId);
     if (update.changes !== 1) throw new ReviewError('Task changed while approving; reload.', 409);
-    return id;
+    return firstId;
   })();
-  return { status: 'done', scheduledPostId, scheduledFor: scheduledAt.toISOString(), threadId: null };
+  return { status: 'done', scheduledPostId, scheduledFor: scheduledAt.toISOString(), threadId };
 }

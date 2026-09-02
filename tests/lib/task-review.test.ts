@@ -9,6 +9,7 @@ process.env.NEXT_PHASE = '';
 
 const { sqlite } = await import('@/lib/db');
 const { POST } = await import('@/app/api/agent/tasks/[id]/review/route');
+const { reviewTask } = await import('@/lib/task-review');
 
 let campaignId = 0;
 
@@ -73,15 +74,36 @@ describe('POST /api/agent/tasks/:id/review', () => {
     expect(draftCount()).toBe(0);
   });
 
-  it('approves a thread draft through the thread scheduler', async () => {
+  it('approves a thread draft as chained rows in one transaction', async () => {
     const id = task('post');
     draft(id, 'first tweet\n\n---\n\nsecond tweet', null, true);
     const response = await call(id, 'approve');
     expect(response.status).toBe(200);
     const body = (await response.json()) as { threadId: string | null };
     expect(body.threadId).not.toBeNull();
-    expect((sqlite.prepare('SELECT count(*) AS n FROM scheduled_posts WHERE thread_id = ?').get(body.threadId) as { n: number }).n).toBe(2);
+    const rows = sqlite.prepare('SELECT text, thread_index, dedupe_key, scheduled_time FROM scheduled_posts WHERE thread_id = ? ORDER BY thread_index').all(body.threadId) as Array<Record<string, unknown>>;
+    expect(rows.map((r) => [r.text, r.thread_index, r.dedupe_key])).toEqual([
+      ['first tweet', 0, `subscription-worker:review:task:${id}:0`],
+      ['second tweet', 1, `subscription-worker:review:task:${id}:1`],
+    ]);
+    expect(rows[0].scheduled_time).toBe(rows[1].scheduled_time);
     expect(status(id)).toBe('done');
+  });
+
+  it('is atomic: a task decided concurrently leaves no scheduled rows behind', async () => {
+    const before = (sqlite.prepare('SELECT count(*) AS n FROM scheduled_posts').get() as { n: number }).n;
+    const id = task('post');
+    draft(id, 'a\n\n---\n\nb', null, true);
+    await expect(
+      reviewTask(id, 'approve', {
+        beforeWrite: () => {
+          sqlite.prepare("UPDATE campaign_tasks SET status = 'skipped' WHERE id = ?").run(id);
+        },
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect((sqlite.prepare('SELECT count(*) AS n FROM scheduled_posts').get() as { n: number }).n).toBe(before);
+    expect(draftCount()).toBe(1); // the draft survives the failed approval
+    sqlite.prepare('DELETE FROM draft_posts').run();
   });
 
   it('refuses what cannot be reviewed', async () => {
