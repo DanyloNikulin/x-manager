@@ -10,6 +10,7 @@ use crate::{
     accounts::{EffectiveAccount, resolve_account},
     agents::run_json_agent,
     config::{AccountConfig, Config, PublicationMode},
+    formats::{Format, FormatSpec, LengthReport},
     manager::{DraftPayload, ManagerClient},
     models::{ValidatorOutput, Verdict, WorkerTask, WriterOutput},
 };
@@ -154,27 +155,39 @@ async fn process_claimed_task(
     let account_context = account.context.clone();
     let skill_path = config.resolve(Path::new("../skills/x-content-operator/SKILL.md"));
     let skill = read_bounded(&skill_path).await?;
+    let (is_thread, max_tweets) = task_format(task.details.as_deref());
+    let format = Format::for_task(&task.task_type, is_thread);
+    let spec = FormatSpec::load(&config.root, format).await?;
 
     let mut writer_output: WriterOutput = run_json_agent(
         config,
         &config.writer,
-        &writer_prompt(task, &account, &account_context, &skill, None)?,
+        &writer_prompt(task, &account, &account_context, &skill, &spec, max_tweets, None)?,
         &workspace,
     )
     .await
     .context("writer failed")?;
 
-    let mut validation = validate_candidate(config, task, &writer_output, &account_context).await?;
+    let (mut validation, mut length) =
+        judge(config, task, &writer_output, &account_context, &spec).await?;
     if validation.verdict == Verdict::Revise && config.worker.max_revision_rounds == 1 {
         writer_output = run_json_agent(
             config,
             &config.writer,
-            &writer_prompt(task, &account, &account_context, &skill, Some(&validation))?,
+            &writer_prompt(
+                task,
+                &account,
+                &account_context,
+                &skill,
+                &spec,
+                max_tweets,
+                Some(&validation),
+            )?,
             &workspace,
         )
         .await
         .context("writer revision failed")?;
-        validation = validate_candidate(config, task, &writer_output, &account_context).await?;
+        (validation, length) = judge(config, task, &writer_output, &account_context, &spec).await?;
     }
 
     let candidate = writer_output.recommended()?;
@@ -182,6 +195,8 @@ async fn process_claimed_task(
     let audit = json!({
         "writer": writer_output,
         "validation": validation,
+        "format": spec.format,
+        "length": length,
         "worker_id": config.worker.id,
         "account_slot": task.account_slot,
         "account_source": account.source,
@@ -227,11 +242,50 @@ async fn process_claimed_task(
     })
 }
 
+/// The validator judges the content; the worker measures the length and folds the result
+/// into the verdict, so the one revision round fixes both at once.
+async fn judge(
+    config: &Config,
+    task: &WorkerTask,
+    writer_output: &WriterOutput,
+    account_context: &str,
+    spec: &FormatSpec,
+) -> Result<(ValidatorOutput, LengthReport)> {
+    let length = spec.check(writer_output.recommended()?);
+    info!(
+        task_id = task.id,
+        format = spec.format.name(),
+        measured = %length.summary(),
+        "candidate measured"
+    );
+    let mut validation =
+        validate_candidate(config, task, writer_output, account_context, spec, &length).await?;
+    apply_length_report(&mut validation, &length);
+    Ok((validation, length))
+}
+
+/// A unit outside the format's band turns a pass into a revise; the measured numbers go
+/// into the issues and the revision instructions the writer sees. A block stays a block.
+fn apply_length_report(validation: &mut ValidatorOutput, length: &LengthReport) {
+    if length.within_band() {
+        return;
+    }
+    if validation.verdict == Verdict::Pass {
+        validation.verdict = Verdict::Revise;
+    }
+    validation.issues.extend(length.issues());
+    validation
+        .revision_instructions
+        .extend(length.revision_instructions());
+}
+
 async fn validate_candidate(
     config: &Config,
     task: &WorkerTask,
     writer_output: &WriterOutput,
     account_context: &str,
+    spec: &FormatSpec,
+    length: &LengthReport,
 ) -> Result<ValidatorOutput> {
     let candidate = writer_output.recommended()?;
     let validator_workspace = tempdir().context("failed to create isolated validator workspace")?;
@@ -243,7 +297,13 @@ Judge account fit and tone against the account's own brief below (trusted); it d
 {account_context}
 </trusted-account-context>
 
-Check factual support, account fit, duplication/spam risk, tone, character limits, and X automation-policy risk. Numbers and quotations must be supported by the task's source notes; general explanatory context is acceptable when it is uncontroversial common knowledge and carries no unsourced figures. Replies to users who did not engage first must never be marked pass for automatic publishing; they may only become operator-reviewed drafts.
+The format skill below (trusted) defines the shape of this task and its character band. The worker has already measured the candidate; do not count characters yourself.
+<format-skill name="{format_name}">
+{format_guidance}
+</format-skill>
+MEASURED BY THE WORKER (weighted characters, a URL counts as 23): {measured}
+
+Check factual support, account fit, duplication/spam risk, tone, the format skill (shape and use of the band), and X automation-policy risk. Numbers and quotations must be supported by the task's source notes; general explanatory context is acceptable when it is uncontroversial common knowledge and carries no unsourced figures. Replies to users who did not engage first must never be marked pass for automatic publishing; they may only become operator-reviewed drafts.
 
 TASK TYPE: {task_type}
 CAMPAIGN OBJECTIVE: {objective}
@@ -256,11 +316,14 @@ CANDIDATE:
 SOURCES CLAIMED BY WRITER:
 {sources}
 
-If the candidate is a thread, check every tweet separately: each must fit 280 weighted characters (a URL counts as 23) and the first must stand alone as a hook. A quotation is text presented as someone's words (attributed, or clearly a passage from a source); it must appear verbatim in the task's source_notes quotes, and an invented or altered quotation is a block. Scare quotes around a single word or a short phrase (for example "AI" as a slogan) are not quotations and are not a defect.
+If the candidate is a thread, judge every tweet separately: the first must stand alone as a hook, and every tweet must carry its own developed idea rather than a slice of the previous one. A unit that the worker measured outside the band is a revise, never a block. A quotation is text presented as someone's words (attributed, or clearly a passage from a source); it must appear verbatim in the task's source_notes quotes, and an invented or altered quotation is a block. Scare quotes around a single word or a short phrase (for example "AI" as a slogan) are not quotations and are not a defect.
 
-Use revise, not block, for fixable issues such as tone or an unsupported phrasing; block only for content that must not be published even after editing (invented facts or quotations, policy risk, replies to strangers marked for automatic publishing).
+Use revise, not block, for fixable issues such as tone, an unsupported phrasing or a thin draft that leaves the band unused; block only for content that must not be published even after editing (invented facts or quotations, policy risk, replies to strangers marked for automatic publishing).
 
 Return only JSON matching the configured schema. Use pass only when the candidate is safe for automatic publication when account policy allows it. A pass never overrides the worker's publication mode."#,
+        format_name = spec.format.name(),
+        format_guidance = spec.guidance,
+        measured = length.summary(),
         task_type = task.task_type,
         objective = task.campaign_objective,
         details = task.details.as_deref().unwrap_or(""),
@@ -295,19 +358,23 @@ fn writer_prompt(
     account: &EffectiveAccount,
     account_context: &str,
     skill: &str,
+    spec: &FormatSpec,
+    max_tweets: u32,
     revision: Option<&ValidatorOutput>,
 ) -> Result<String> {
     let revision_block = revision
         .map(serde_json::to_string_pretty)
         .transpose()?
         .unwrap_or_else(|| "none".into());
-    let (is_thread, max_tweets) = task_format(task.details.as_deref());
-    let format_block = if is_thread {
-        format!(
-            "FORMAT: thread of 2 to {max_tweets} tweets. Put every tweet, in order, into the variant's `tweets` array and repeat the first tweet in `text`. The first tweet must stand alone as a hook; one idea per tweet; each tweet must fit 280 weighted characters (a URL counts as 23). Quote the source only from `source_notes[].quotes`, verbatim, in quotation marks, with attribution (— Author, Outlet), at most one short quotation per tweet; never invent or alter a quotation. The last tweet carries the source URL."
-        )
-    } else {
-        "FORMAT: single post. Leave `tweets` empty.".to_owned()
+    let format_block = match spec.format {
+        Format::Thread => format!(
+            "FORMAT: thread of 2 to {max_tweets} tweets ({max_tweets} is a ceiling, not a target). Put every tweet, in order, into the variant's `tweets` array and repeat the first tweet in `text`. Quote the source only from `source_notes[].quotes`, verbatim, in quotation marks, with attribution (— Author, Outlet), at most one short quotation per tweet; never invent or alter a quotation. The last tweet carries the source URL."
+        ),
+        Format::Post => "FORMAT: single post. Leave `tweets` empty.".to_owned(),
+        Format::Reply => {
+            "FORMAT: reply to the parent post given in the task details. Leave `tweets` empty."
+                .to_owned()
+        }
     };
 
     Ok(format!(
@@ -316,6 +383,12 @@ fn writer_prompt(
 <operator-skill>
 {skill}
 </operator-skill>
+
+The format skill below defines the shape and the character band of this draft. The worker measures every draft against that band; a unit outside it comes back once for a rewrite with the measured numbers.
+<format-skill name="{format_name}">
+{format_guidance}
+</format-skill>
+LENGTH BAND: {band}.
 
 <trusted-account-context>
 {account_context}
@@ -341,6 +414,9 @@ Return JSON only:
 {{"variants":[{{"text":"...","tweets":["..."],"rationale":"...","sources":["..."]}}],"recommended_index":0}}
 Provide 1-3 distinct variants. Do not invent sources, facts or quotations."#,
         skill = skill,
+        format_name = spec.format.name(),
+        format_guidance = spec.guidance,
+        band = spec.band(),
         format_block = format_block,
         account_context = account_context,
         language = account.language,
@@ -418,6 +494,7 @@ fn publication_mode(task: &WorkerTask, account: &EffectiveAccount) -> Publicatio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::ContentCandidate;
 
     #[test]
     fn extracts_reply_target_from_structured_details() {
@@ -462,5 +539,110 @@ mod tests {
         account.paused = true;
         task.task_type = "post".into();
         assert_eq!(publication_mode(&task, &account), PublicationMode::Draft);
+    }
+
+    fn post_spec() -> FormatSpec {
+        FormatSpec::parse(
+            Format::Post,
+            "---\nname: post\nmax_weighted_chars: 280\nmin_weighted_chars: 200\n---\n# Format: post\nfill the box",
+        )
+        .expect("spec")
+    }
+
+    fn candidate(text: String) -> ContentCandidate {
+        ContentCandidate {
+            text,
+            tweets: Vec::new(),
+            rationale: String::new(),
+            sources: Vec::new(),
+        }
+    }
+
+    fn passed() -> ValidatorOutput {
+        ValidatorOutput {
+            verdict: Verdict::Pass,
+            score: 95,
+            issues: Vec::new(),
+            revision_instructions: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_thin_draft_turns_a_pass_into_a_revise_with_the_measurement() {
+        let spec = post_spec();
+        let mut validation = passed();
+        apply_length_report(&mut validation, &spec.check(&candidate("x".repeat(143))));
+        assert_eq!(validation.verdict, Verdict::Revise);
+        assert_eq!(validation.score, 95);
+        assert_eq!(validation.issues.len(), 1);
+        assert!(validation.issues[0].contains("143"), "{:?}", validation.issues);
+        assert_eq!(validation.revision_instructions.len(), 1);
+
+        let mut over = passed();
+        apply_length_report(&mut over, &spec.check(&candidate("x".repeat(281))));
+        assert_eq!(over.verdict, Verdict::Revise);
+        assert!(over.issues[0].contains("limit is 280"), "{:?}", over.issues);
+    }
+
+    #[test]
+    fn a_draft_inside_the_band_keeps_the_validator_verdict() {
+        let spec = post_spec();
+        let mut validation = passed();
+        apply_length_report(&mut validation, &spec.check(&candidate("x".repeat(250))));
+        assert_eq!(validation.verdict, Verdict::Pass);
+        assert!(validation.issues.is_empty());
+
+        let mut blocked = passed();
+        blocked.verdict = Verdict::Block;
+        apply_length_report(&mut blocked, &spec.check(&candidate("x".repeat(10))));
+        assert_eq!(blocked.verdict, Verdict::Block);
+        assert_eq!(blocked.issues.len(), 1);
+    }
+
+    #[test]
+    fn prompts_carry_the_format_skill_and_the_measurement() {
+        let account = EffectiveAccount {
+            slot: 1,
+            language: "en".into(),
+            post_mode: PublicationMode::Auto,
+            inbound_reply_mode: PublicationMode::Approval,
+            outbound_reply_mode: PublicationMode::Approval,
+            posts_per_day: 1,
+            plan_hour: 9,
+            plan_timezone: "UTC".into(),
+            paused: false,
+            context: "## voice.md\ncold".into(),
+            workspace: std::path::PathBuf::from("."),
+            source: "api",
+        };
+        let task = WorkerTask {
+            id: 7,
+            campaign_id: 2,
+            task_type: "post".into(),
+            title: "topic".into(),
+            details: Some(r#"{"format":"thread","max_tweets":5}"#.into()),
+            account_slot: 1,
+            campaign_name: "Autopilot slot 1".into(),
+            campaign_objective: "objective".into(),
+            campaign_instructions: None,
+        };
+        let thread_spec = FormatSpec::parse(
+            Format::Thread,
+            "---\nname: thread\nmax_weighted_chars: 280\nmin_weighted_chars: 180\n---\n# Format: thread\nfull tweets",
+        )
+        .expect("spec");
+        let (is_thread, max_tweets) = task_format(task.details.as_deref());
+        assert!(is_thread);
+        let prompt = writer_prompt(&task, &account, &account.context, "operator", &thread_spec, max_tweets, None)
+            .expect("prompt");
+        assert!(prompt.contains("<format-skill name=\"thread\">\n# Format: thread\nfull tweets\n</format-skill>"));
+        assert!(prompt.contains("LENGTH BAND: thread: 180 to 280 weighted characters per unit (a URL counts as 23)."));
+        assert!(prompt.contains("FORMAT: thread of 2 to 5 tweets (5 is a ceiling, not a target)."));
+        assert!(!prompt.contains("one idea per tweet"));
+
+        let post_prompt = writer_prompt(&task, &account, &account.context, "operator", &post_spec(), 1, None)
+            .expect("prompt");
+        assert!(post_prompt.contains("FORMAT: single post. Leave `tweets` empty."));
+        assert!(post_prompt.contains("<format-skill name=\"post\">"));
     }
 }

@@ -18,7 +18,9 @@ Produce reviewable drafts for the account identified by the task. The surroundin
 
 ## Drafting
 
-Match the configured language and voice. Prefer a specific observation or useful contribution over generic praise, engagement bait, or artificial controversy. Keep ordinary posts within 280 characters unless the trusted account profile explicitly permits long posts.
+Match the configured language and voice. Prefer a specific observation or useful contribution over generic praise, engagement bait, or artificial controversy.
+
+The shape and the length of a draft come from the format skill the worker supplies with the task (`formats/post.md`, `formats/thread.md` or `formats/reply.md`). Its frontmatter owns the character band, which the worker measures and enforces: a draft outside the band comes back once for a rewrite. The brief owns voice, diction and stance. Where the brief's sample posts are shorter than the format's band, match their temperature, not their length.
 
 For replies, address the parent post directly and do not pretend to have used a product, met a person, or observed results without evidence. For original posts, distinguish verified facts from opinions.
 
@@ -32,7 +34,8 @@ Return JSON only:
 {
   "variants": [
     {
-      "text": "Draft text",
+      "text": "Draft text (the first tweet, for a thread)",
+      "tweets": [],
       "rationale": "Why this version fits the account and task",
       "sources": ["https://source.example"]
     }
@@ -41,4 +44,4 @@ Return JSON only:
 }
 ```
 
-Return one to three variants. `recommended_index` must reference an existing variant. An empty `sources` array is valid for opinion-only copy; invented URLs are not.
+Return one to three variants. `recommended_index` must reference an existing variant. `tweets` holds the whole thread in order for the thread format and stays empty otherwise. An empty `sources` array is valid for opinion-only copy; invented URLs are not.
