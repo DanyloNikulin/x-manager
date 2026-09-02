@@ -93,7 +93,7 @@ function buildQuery(keywords: string[], language: string | null): string {
 
 function createReplyStarter(text: string, keywords: string[]): string {
   const opener = keywords[0] || 'this topic';
-  const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 90);
+  const snippet = Array.from(text.replace(/\s+/g, ' ').trim()).slice(0, 90).join('');
   return `Interesting take on ${opener}. I agree with parts of "${snippet}" and would add: `;
 }
 

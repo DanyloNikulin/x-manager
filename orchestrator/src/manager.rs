@@ -327,9 +327,12 @@ impl ManagerClient {
             .context("discovery request failed")?
             .error_for_status()
             .context("discovery request was rejected")?
-            .json::<Value>()
+            .text()
             .await
-            .context("invalid discovery response")?;
+            .context("unreadable discovery response")?;
+        // Tweet text sliced by the web app can end on half of a surrogate pair, which the
+        // JSON then carries as a lone `\uD83D`-style escape that a strict parser rejects.
+        let body: Value = serde_json::from_str(&repair_lone_surrogates(&body)).context("invalid discovery response")?;
         let topics = body
             .get("topics")
             .and_then(Value::as_array)
@@ -584,5 +587,64 @@ impl ManagerClient {
 
     fn request(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         builder.bearer_auth(&self.admin_token)
+    }
+}
+
+/// Replaces `\uXXXX` escapes that encode a lone UTF-16 surrogate (a high one not followed
+/// by a low one, or a stray low one) with `�`, so strict JSON parsing succeeds.
+pub fn repair_lone_surrogates(json: &str) -> String {
+    let bytes = json.as_bytes();
+    let hex4 = |at: usize| -> Option<u32> {
+        let slice = bytes.get(at..at + 4)?;
+        let text = std::str::from_utf8(slice).ok()?;
+        u32::from_str_radix(text, 16).ok()
+    };
+    let mut out = String::with_capacity(json.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && bytes.get(i + 1) == Some(&b'u')
+            && let Some(code) = hex4(i + 2)
+        {
+            let high = (0xD800..=0xDBFF).contains(&code);
+            let low = (0xDC00..=0xDFFF).contains(&code);
+            if high {
+                let next = if bytes.get(i + 6) == Some(&b'\\') && bytes.get(i + 7) == Some(&b'u') { hex4(i + 8) } else { None };
+                if next.is_some_and(|n| (0xDC00..=0xDFFF).contains(&n)) {
+                    out.push_str(&json[i..i + 12]);
+                    i += 12;
+                } else {
+                    out.push_str("\\uFFFD");
+                    i += 6;
+                }
+                continue;
+            }
+            if low {
+                out.push_str("\\uFFFD");
+                i += 6;
+                continue;
+            }
+        }
+        // Copy one full UTF-8 character.
+        let len = json[i..].chars().next().map(char::len_utf8).unwrap_or(1);
+        out.push_str(&json[i..i + len]);
+        i += len;
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::repair_lone_surrogates;
+
+    #[test]
+    fn lone_surrogate_escapes_are_repaired_and_pairs_kept() {
+        let broken = r#"{"text":"cut \ud83d here","ok":"😀 pair","stray":"\ude00 low","plain":"é é"}"#;
+        let repaired = repair_lone_surrogates(broken);
+        let value: serde_json::Value = serde_json::from_str(&repaired).expect("parses after repair");
+        assert_eq!(value["text"], "cut \u{FFFD} here");
+        assert_eq!(value["ok"], "😀 pair");
+        assert_eq!(value["stray"], "\u{FFFD} low");
+        assert_eq!(value["plain"], "é é");
+        assert!(serde_json::from_str::<serde_json::Value>(broken).is_err());
     }
 }
