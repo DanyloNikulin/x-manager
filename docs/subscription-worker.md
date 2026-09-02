@@ -112,6 +112,17 @@ With an `[analyst]` section in the config, every `run-once` pass also checks whe
 
 Proposals are decided in the Account console → Proposals (`POST /api/agent/tasks/:id/proposals` with `{ index, action: "apply" | "reject" }`, `src/lib/proposals.ts`). Applying a text proposal replaces the exact `current` text with `proposed` in that brief field (or appends when `current` is empty) and refuses, with 422, when the text is no longer there; applying a setting proposal (`postsPerDay`, `maxRepliesPerConversation`) goes through the normal profile validation and remembers the previous value. Every decision is written back to the task, and the task closes once no proposal is open. The KPI the analyst optimises for follows the strategy: without a funnel, replies from real people and follows per post, never raw impressions.
 
+## Researcher (X radar)
+
+With a `[researcher]` section in the config, an account whose profile has research terms and `researchRunsPerDay > 0` (Account console → Behaviour) gets a few researcher runs a day (`orchestrator/src/researcher.rs`), spread at least `24 / runs` hours apart; `x-manager-orchestrator research [--force]` runs one now. A run:
+
+1. searches X for every research term through X-Manager's discovery search (`GET /api/discovery/topics`, the app's bearer token, 15-minute cache, engagement-per-age scoring; one search per term per run is the whole X API cost of the role), drops the account's own posts and anything suggested in earlier runs;
+2. runs the researcher role skill (`skills/x-content-operator/roles/researcher.md`, schema `researcher-output.schema.json`) over the results (untrusted data) and the brief: a radar note of 2–5 lines and at most 5 opportunities (`reply`, `quote`, `repost`, `watch`), each pointing at a tweet id from the results — anything else is rejected;
+3. turns at most two `reply` opportunities into outbound reply tasks (`reply_kind: outbound`, the found post as untrusted parent text, the researcher's angle in `radar_angle`), which the writer drafts under the reply playbook and `outbound_reply_mode` (approval by default: nothing outbound is ever automatic); the other kinds are recorded for the operator;
+4. records the run as a task assigned to `researcher` (`Autopilot <day>: radar <n>`) with the note, the opportunities (and the ids of the reply tasks) and the suggested tweet ids; the Account console → Radar tab shows it.
+
+The planner reads the radar lines of the last 36 hours (two newest runs) as leads, never as sources: every number in a post still needs a page the planner opened.
+
 Do not overlap `run-once` invocations with the same worker ID. This MVP does not yet renew or recover abandoned claim leases automatically; an interrupted task remains visible as `in_progress` for operator recovery. A durable lease/heartbeat is the next reliability step before running a larger worker pool.
 
 ## Remote server layout

@@ -6,4 +6,5 @@ pub mod formats;
 pub mod manager;
 pub mod models;
 pub mod planner;
+pub mod researcher;
 pub mod worker;

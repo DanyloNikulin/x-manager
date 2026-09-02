@@ -48,6 +48,20 @@ struct DraftRequest<'a> {
     source_url: Option<&'a str>,
 }
 
+/// One post found by X-Manager's discovery search (`GET /api/discovery/topics`).
+#[derive(Debug, Clone)]
+pub struct DiscoveredPost {
+    pub id: String,
+    pub url: String,
+    pub author: Option<String>,
+    pub text: String,
+    pub created_at: Option<String>,
+    pub likes: u64,
+    pub replies: u64,
+    pub reposts: u64,
+    pub quotes: u64,
+}
+
 /// Everything the worker hands back about one piece of content.
 pub struct DraftPayload<'a> {
     pub text: &'a str,
@@ -296,6 +310,61 @@ impl ManagerClient {
         .error_for_status()
         .context("task update was rejected")?;
         Ok(())
+    }
+
+    /// Recent X posts matching one search term, through X-Manager's discovery search (which
+    /// holds the bearer token, caches for 15 minutes, and scores by engagement per age).
+    pub async fn discover(&self, term: &str, language: &str, limit: u32) -> Result<Vec<DiscoveredPost>> {
+        let limit_value = limit.to_string();
+        let body = self
+            .request(
+                self.client
+                    .get(format!("{}/api/discovery/topics", self.base_url)),
+            )
+            .query(&[("keywords", term), ("lang", language), ("limit", limit_value.as_str())])
+            .send()
+            .await
+            .context("discovery request failed")?
+            .error_for_status()
+            .context("discovery request was rejected")?
+            .json::<Value>()
+            .await
+            .context("invalid discovery response")?;
+        let topics = body
+            .get("topics")
+            .and_then(Value::as_array)
+            .context("discovery response has no `topics`")?;
+        let mut posts = Vec::with_capacity(topics.len());
+        for topic in topics {
+            let Some(id) = topic.get("id").and_then(Value::as_str) else { continue };
+            let text = topic.get("text").and_then(Value::as_str).unwrap_or_default();
+            if text.trim().is_empty() {
+                continue;
+            }
+            let metric = |name: &str| {
+                topic
+                    .get("metrics")
+                    .and_then(|metrics| metrics.get(name))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+            };
+            posts.push(DiscoveredPost {
+                id: id.to_owned(),
+                url: topic.get("url").and_then(Value::as_str).unwrap_or_default().to_owned(),
+                author: topic
+                    .get("author")
+                    .and_then(|author| author.get("username"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                text: text.to_owned(),
+                created_at: topic.get("createdAt").and_then(Value::as_str).map(str::to_owned),
+                likes: metric("likes"),
+                replies: metric("replies"),
+                reposts: metric("reposts"),
+                quotes: metric("quotes"),
+            });
+        }
+        Ok(posts)
     }
 
     /// Appends dated observations to the stored memory field, server-side in one

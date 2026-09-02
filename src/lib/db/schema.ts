@@ -563,6 +563,10 @@ export const accountProfiles = sqliteTable('account_profiles', {
   planTimezone: text('plan_timezone').notNull().default('UTC'),
   /** Our replies in one chain with one person before the intake stops making reply tasks. */
   maxRepliesPerConversation: integer('max_replies_per_conversation').notNull().default(2),
+  /** JSON array of search terms the researcher watches on X. */
+  researchTerms: text('research_terms').notNull().default('[]'),
+  /** Researcher runs per local day; 0 switches it off. */
+  researchRunsPerDay: integer('research_runs_per_day').notNull().default(0),
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`),
 });

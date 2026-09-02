@@ -96,3 +96,22 @@ args = [
 ]
 schema_path = "schemas/analyst-output.schema.json"
 timeout_seconds = 600
+
+# Researcher: a few times a day (accounts' research_runs_per_day, spread over the day) reads
+# what the niche is saying on X for the account's research terms (X-Manager's discovery
+# search, cached 15 min) and records a radar note for the planner plus opportunities:
+# `reply` ones become outbound reply tasks (approval only), the rest wait for the operator.
+[researcher]
+program = "claude"
+args = [
+  "-p",
+  "--output-format", "json",
+  "--json-schema", "{schema_json}",
+  "--tools", "WebSearch,WebFetch",
+  "--allowedTools", "WebSearch,WebFetch",
+  "--safe-mode",
+  "--strict-mcp-config",
+  "--no-session-persistence"
+]
+schema_path = "schemas/researcher-output.schema.json"
+timeout_seconds = 600

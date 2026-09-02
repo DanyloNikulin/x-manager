@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, Loader2, RefreshCw, Save, Settings2, Activity as ActivityIcon, Upload, AlertCircle, CheckCircle2, Lightbulb } from 'lucide-react';
+import { BookOpen, Loader2, RefreshCw, Save, Settings2, Activity as ActivityIcon, Upload, AlertCircle, CheckCircle2, Lightbulb, Radar } from 'lucide-react';
 import {
   BRIEF_FIELDS,
   MAX_POSTS_PER_DAY,
   MAX_REPLIES_PER_CONVERSATION,
+  MAX_RESEARCH_RUNS_PER_DAY,
+  MAX_RESEARCH_TERMS,
   PROFILE_STATUSES,
   PUBLICATION_MODES,
   type BriefField,
@@ -29,6 +31,8 @@ type ProfileView = {
   planHour: number;
   planTimezone: string;
   maxRepliesPerConversation: number;
+  researchTerms: string[];
+  researchRunsPerDay: number;
   updatedAt: string | null;
   stored: boolean;
   connected: boolean;
@@ -64,7 +68,30 @@ type RecentPost = {
   twitterPostId?: string | null;
 };
 
-type Tab = 'brief' | 'behaviour' | 'proposals' | 'activity';
+type Tab = 'brief' | 'behaviour' | 'proposals' | 'radar' | 'activity';
+
+/** One researcher opportunity as stored in a radar task's details (orchestrator/src/researcher.rs). */
+type OpportunityView = {
+  kind: string;
+  tweet_id: string;
+  url: string;
+  author: string;
+  why: string;
+  angle: string;
+  priority: number;
+  task_id?: number;
+};
+
+type RadarView = {
+  day?: string;
+  run?: number;
+  ran_at?: string;
+  terms?: string[];
+  fetched?: number;
+  radar?: string[];
+  opportunities?: OpportunityView[];
+  error?: string;
+};
 
 /** One analyst proposal as stored in the analysis task's details (see src/lib/proposals.ts). */
 type ProposalView = {
@@ -236,6 +263,7 @@ export default function AccountConsole({ initialSlot }: AccountConsoleProps) {
                   ['brief', 'Brief', <BookOpen key="b" className="h-3.5 w-3.5" />],
                   ['behaviour', 'Behaviour', <Settings2 key="s" className="h-3.5 w-3.5" />],
                   ['proposals', 'Proposals', <Lightbulb key="p" className="h-3.5 w-3.5" />],
+                  ['radar', 'Radar', <Radar key="r" className="h-3.5 w-3.5" />],
                   ['activity', 'Activity', <ActivityIcon key="a" className="h-3.5 w-3.5" />],
                 ] as Array<[Tab, string, React.ReactNode]>).map(([key, label, icon]) => (
                   <button
@@ -254,6 +282,7 @@ export default function AccountConsole({ initialSlot }: AccountConsoleProps) {
             {tab === 'brief' && <BriefTab key={`brief-${selected.slot}-${selected.updatedAt ?? 'new'}`} profile={selected} onSaved={handleSaved} onError={setError} />}
             {tab === 'behaviour' && <BehaviourTab key={`behaviour-${selected.slot}-${selected.updatedAt ?? 'new'}`} profile={selected} onSaved={handleSaved} onError={setError} onNotice={setNotice} />}
             {tab === 'proposals' && <ProposalsTab key={`proposals-${selected.slot}`} slot={selected.slot} onNotice={setNotice} onError={setError} onProfileChanged={() => void loadProfiles()} />}
+            {tab === 'radar' && <RadarTab key={`radar-${selected.slot}`} slot={selected.slot} profile={selected} onError={setError} />}
             {tab === 'activity' && <ActivityTab key={`activity-${selected.slot}`} slot={selected.slot} />}
           </>
         )}
@@ -360,6 +389,8 @@ function BehaviourTab({ profile, onSaved, onError, onNotice }: { profile: Profil
     planHour: profile.planHour,
     planTimezone: profile.planTimezone,
     maxRepliesPerConversation: profile.maxRepliesPerConversation ?? 2,
+    researchTerms: (profile.researchTerms ?? []).join(', '),
+    researchRunsPerDay: profile.researchRunsPerDay ?? 0,
   });
   const [saving, setSaving] = useState(false);
   const [policy, setPolicy] = useState<SlotPolicy | null>(null);
@@ -386,7 +417,9 @@ function BehaviourTab({ profile, onSaved, onError, onNotice }: { profile: Profil
     };
   }, [profile.slot, onError]);
 
-  const dirty = (Object.keys(form) as Array<keyof typeof form>).some((key) => form[key] !== profile[key]);
+  const dirty = (Object.keys(form) as Array<keyof typeof form>).some((key) =>
+    key === 'researchTerms' ? form.researchTerms !== (profile.researchTerms ?? []).join(', ') : form[key] !== profile[key],
+  );
   const policyDirty = Boolean(policy && policyForm && JSON.stringify(policy) !== JSON.stringify(policyForm));
 
   const save = async () => {
@@ -478,6 +511,16 @@ function BehaviourTab({ profile, onSaved, onError, onNotice }: { profile: Profil
             <label className={labelClass}>Replies per conversation (depth cap, 1–{MAX_REPLIES_PER_CONVERSATION})</label>
             <input type="number" min={1} max={MAX_REPLIES_PER_CONVERSATION} value={form.maxRepliesPerConversation} onChange={(event) => setForm((prev) => ({ ...prev, maxRepliesPerConversation: Number(event.target.value) }))} className={inputClass} />
             <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">after this many of our replies in one chain, the other person gets the last word; the mention stays in the inbox for you</p>
+          </div>
+          <div>
+            <label className={labelClass}>Research terms (comma-separated, up to {MAX_RESEARCH_TERMS})</label>
+            <input value={form.researchTerms} onChange={(event) => setForm((prev) => ({ ...prev, researchTerms: event.target.value }))} className={inputClass} placeholder="agents, data center power, capacity auction" />
+            <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">what the researcher searches for on X; each term costs one search per run</p>
+          </div>
+          <div>
+            <label className={labelClass}>Research runs per day (0 = researcher off, up to {MAX_RESEARCH_RUNS_PER_DAY})</label>
+            <input type="number" min={0} max={MAX_RESEARCH_RUNS_PER_DAY} value={form.researchRunsPerDay} onChange={(event) => setForm((prev) => ({ ...prev, researchRunsPerDay: Number(event.target.value) }))} className={inputClass} />
+            <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">runs are spread over the day; every run records a radar note for the planner and suggestions for you</p>
           </div>
         </div>
         <datalist id="xm-timezones">
@@ -676,6 +719,114 @@ function ProposalsTab({ slot, onNotice, onError, onProfileChanged }: { slot: num
                             <button onClick={() => void decide(task.id, index, 'reject')} disabled={busy !== ''} className={secondaryButton}>Reject</button>
                           </div>
                         )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Radar (researcher runs: what the niche is saying on X, and what to engage with)
+// ---------------------------------------------------------------------------
+
+function parseRadar(task: CampaignTask): RadarView {
+  try {
+    return JSON.parse(task.details ?? '{}') as RadarView;
+  } catch {
+    return {};
+  }
+}
+
+function kindBadge(kind: string): string {
+  if (kind === 'reply') return 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-900/30 dark:text-teal-300 dark:border-teal-700';
+  if (kind === 'quote') return 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-700';
+  if (kind === 'repost') return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700';
+  return 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600';
+}
+
+function RadarTab({ slot, profile, onError }: { slot: number; profile: ProfileView; onError: (m: string) => void }) {
+  const [runs, setRuns] = useState<CampaignTask[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    onError('');
+    try {
+      const tasks = await loadAutopilotTasks(slot);
+      setRuns(tasks.filter((task) => task.assignedAgent === 'researcher').sort((a, b) => b.id - a.id).slice(0, 10));
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Failed to load radar runs.');
+    } finally {
+      setLoading(false);
+    }
+  }, [slot, onError]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const configured = (profile.researchTerms ?? []).length > 0 && (profile.researchRunsPerDay ?? 0) > 0;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Radar</h4>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {configured
+              ? `The researcher searches X for ${(profile.researchTerms ?? []).join(', ')} ${profile.researchRunsPerDay}× a day. Reply suggestions become drafts for your approval; quotes, reposts and watches are yours to act on.`
+              : 'Researcher off: set research terms and runs per day in Behaviour.'}
+          </p>
+        </div>
+        <button onClick={() => void load()} className={secondaryButton} disabled={loading}>
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
+        </button>
+      </div>
+      {runs.length === 0 ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400">{loading ? 'Loading…' : 'No radar runs yet.'}</p>
+      ) : (
+        <ul className="space-y-4">
+          {runs.map((task) => {
+            const radar = parseRadar(task);
+            return (
+              <li key={task.id} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    {radar.day ? `${radar.day} · run ${radar.run ?? '?'}` : task.title}
+                    {radar.ran_at && <span className="ml-2 text-xs font-normal text-slate-400 dark:text-slate-500">{formatWhen(radar.ran_at)}</span>}
+                  </span>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400">
+                    {task.status}{typeof radar.fetched === 'number' ? ` · ${radar.fetched} posts read` : ''}
+                  </span>
+                </div>
+                {radar.error && <p className="text-sm text-red-600 dark:text-red-400 whitespace-pre-wrap">{radar.error}</p>}
+                {radar.radar && radar.radar.length > 0 && (
+                  <ul className="list-disc pl-5 space-y-0.5 text-sm text-slate-700 dark:text-slate-300">
+                    {radar.radar.map((line, index) => <li key={index}>{line}</li>)}
+                  </ul>
+                )}
+                {radar.opportunities && radar.opportunities.length > 0 && (
+                  <div className="space-y-2">
+                    <p className={labelClass}>Opportunities</p>
+                    {radar.opportunities.map((item, index) => (
+                      <div key={index} className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`text-[11px] px-2 py-0.5 rounded-full border ${kindBadge(item.kind)}`}>{item.kind}</span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">priority {item.priority}</span>
+                          <a href={item.url} target="_blank" rel="noreferrer" className="text-xs text-teal-700 dark:text-teal-300 underline truncate">
+                            @{item.author.replace(/^@/, '')} · {item.tweet_id}
+                          </a>
+                          {typeof item.task_id === 'number' && <span className="text-xs text-slate-400 dark:text-slate-500">reply task #{item.task_id} queued for approval</span>}
+                        </div>
+                        <p className="text-sm text-slate-800 dark:text-slate-200">{item.why}</p>
+                        {item.angle && <p className="text-xs text-slate-600 dark:text-slate-400"><span className="font-medium">Angle:</span> {item.angle}</p>}
                       </div>
                     ))}
                   </div>

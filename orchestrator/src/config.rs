@@ -17,6 +17,8 @@ pub struct Config {
     pub planner: Option<AgentCommand>,
     /// Optional weekly analyst agent; without it no analysis runs.
     pub analyst: Option<AgentCommand>,
+    /// Optional researcher agent (X radar); without it no research runs.
+    pub researcher: Option<AgentCommand>,
     pub accounts: HashMap<String, AccountConfig>,
     #[serde(skip)]
     pub root: PathBuf,

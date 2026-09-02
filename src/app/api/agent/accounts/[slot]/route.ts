@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { parseAccountSlot } from '@/lib/account-slots';
-import { getAccountProfile, saveAccountProfile, validateProfilePatch } from '@/lib/account-profiles';
+import { getAccountProfile, listAccountProfiles, saveAccountProfile, validateProfilePatch } from '@/lib/account-profiles';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,7 +12,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slot: s
     return NextResponse.json({ error: 'slot must be 1, 2, or 3.' }, { status: 400 });
   }
   try {
-    const profile = await getAccountProfile(slot);
+    // The view (with the connected X handle) so the worker knows the account's own username.
+    const profile = (await listAccountProfiles()).find((item) => item.slot === slot) ?? (await getAccountProfile(slot));
     return NextResponse.json({ profile });
   } catch (error) {
     console.error('Failed to load account profile:', error);

@@ -8,6 +8,7 @@ import {
   BRIEF_FIELDS,
   MAX_BRIEF_FIELD_BYTES,
   PROFILE_DEFAULTS,
+  parseResearchTerms,
   type AccountProfileFields,
   type AccountProfilePatch,
   type BriefField,
@@ -66,9 +67,21 @@ function rowToProfile(slot: AccountSlot, row: typeof accountProfiles.$inferSelec
     planHour: row.planHour,
     planTimezone: row.planTimezone,
     maxRepliesPerConversation: row.maxRepliesPerConversation ?? PROFILE_DEFAULTS.maxRepliesPerConversation,
+    researchTerms: parseStoredTerms(row.researchTerms),
+    researchRunsPerDay: row.researchRunsPerDay ?? 0,
     updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
     stored: true,
   };
+}
+
+function parseStoredTerms(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parseResearchTerms(parsed) ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export async function getAccountProfile(slot: AccountSlot): Promise<AccountProfile> {
@@ -113,6 +126,8 @@ export async function saveAccountProfile(slot: AccountSlot, patch: AccountProfil
     planHour: merged.planHour,
     planTimezone: merged.planTimezone,
     maxRepliesPerConversation: merged.maxRepliesPerConversation,
+    researchTerms: JSON.stringify(merged.researchTerms ?? []),
+    researchRunsPerDay: merged.researchRunsPerDay,
     updatedAt: new Date(),
   };
   await db

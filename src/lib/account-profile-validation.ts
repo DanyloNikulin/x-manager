@@ -22,6 +22,10 @@ export const MAX_BRIEF_FIELD_BYTES = 128 * 1024;
 export const MAX_POSTS_PER_DAY = 5;
 /** Upper bound for `maxRepliesPerConversation`: our replies in one chain with one person. */
 export const MAX_REPLIES_PER_CONVERSATION = 5;
+/** Researcher: at most this many search terms, each a short phrase, and runs per day. */
+export const MAX_RESEARCH_TERMS = 8;
+export const MAX_RESEARCH_TERM_LENGTH = 60;
+export const MAX_RESEARCH_RUNS_PER_DAY = 6;
 
 export type AccountProfileFields = {
   status: ProfileStatus;
@@ -39,6 +43,10 @@ export type AccountProfileFields = {
   planTimezone: string;
   /** Depth cap: how many replies this account sends in one chain before it stops answering. */
   maxRepliesPerConversation: number;
+  /** What the researcher searches for on X; empty switches the researcher off. */
+  researchTerms: string[];
+  /** Researcher runs per local day (0 = off), spread evenly over the day. */
+  researchRunsPerDay: number;
 };
 
 export type AccountProfilePatch = Partial<AccountProfileFields>;
@@ -58,7 +66,24 @@ export const PROFILE_DEFAULTS: AccountProfileFields = {
   planHour: 9,
   planTimezone: 'UTC',
   maxRepliesPerConversation: 2,
+  researchTerms: [],
+  researchRunsPerDay: 0,
 };
+
+/** Accepts an array of terms or a comma-separated string; trims, drops empties, dedupes. */
+export function parseResearchTerms(input: unknown): string[] | null {
+  const raw = Array.isArray(input) ? input : typeof input === 'string' ? input.split(',') : null;
+  if (raw === null) return null;
+  const terms: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'string') return null;
+    const term = item.replace(/\s+/g, ' ').trim();
+    if (!term) continue;
+    if (term.length > MAX_RESEARCH_TERM_LENGTH) return null;
+    if (!terms.includes(term)) terms.push(term);
+  }
+  return terms.length > MAX_RESEARCH_TERMS ? null : terms;
+}
 
 export function isValidTimezone(value: string): boolean {
   try {
@@ -153,6 +178,24 @@ export function validateProfilePatch(input: unknown): { ok: true; patch: Account
       patch.maxRepliesPerConversation = value;
     } else {
       errors.push(`maxRepliesPerConversation must be an integer between 1 and ${MAX_REPLIES_PER_CONVERSATION}`);
+    }
+  }
+
+  if (body.researchTerms !== undefined) {
+    const terms = parseResearchTerms(body.researchTerms);
+    if (terms) {
+      patch.researchTerms = terms;
+    } else {
+      errors.push(`researchTerms must be up to ${MAX_RESEARCH_TERMS} terms of at most ${MAX_RESEARCH_TERM_LENGTH} characters (array or comma-separated)`);
+    }
+  }
+
+  if (body.researchRunsPerDay !== undefined) {
+    const value = Number(body.researchRunsPerDay);
+    if (Number.isInteger(value) && value >= 0 && value <= MAX_RESEARCH_RUNS_PER_DAY) {
+      patch.researchRunsPerDay = value;
+    } else {
+      errors.push(`researchRunsPerDay must be an integer between 0 and ${MAX_RESEARCH_RUNS_PER_DAY}`);
     }
   }
 

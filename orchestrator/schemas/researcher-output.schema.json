@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["radar", "opportunities"],
+  "properties": {
+    "radar": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 5,
+      "items": { "type": "string", "minLength": 1, "maxLength": 400 }
+    },
+    "opportunities": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "tweet_id", "url", "author", "why", "angle", "priority"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["reply", "quote", "repost", "watch"] },
+          "tweet_id": { "type": "string", "minLength": 1, "maxLength": 40 },
+          "url": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "author": { "type": "string", "maxLength": 60 },
+          "why": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "angle": { "type": "string", "maxLength": 600 },
+          "priority": { "type": "integer", "minimum": 1, "maximum": 3 }
+        }
+      }
+    }
+  }
+}

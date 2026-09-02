@@ -29,6 +29,15 @@ pub struct AccountProfile {
     /// How many replies the account sends in one chain before the intake stops queueing them.
     #[serde(default = "default_max_replies_per_conversation")]
     pub max_replies_per_conversation: u32,
+    /// Search terms the researcher watches on X; empty means the researcher is off.
+    #[serde(default)]
+    pub research_terms: Vec<String>,
+    /// Researcher runs per local day (0 = off), spread evenly.
+    #[serde(default)]
+    pub research_runs_per_day: u32,
+    /// The connected X handle, when the API knows it (used to skip the account's own posts).
+    #[serde(default)]
+    pub username: Option<String>,
     /// False when the API answered with defaults because no row exists yet.
     #[serde(default)]
     pub stored: bool,
@@ -138,6 +147,8 @@ pub struct CampaignTask {
     pub title: String,
     pub status: String,
     pub task_type: String,
+    #[serde(default)]
+    pub details: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -204,6 +215,41 @@ pub struct AnalystOutput {
     pub observations: Vec<String>,
     #[serde(default)]
     pub proposals: Vec<Proposal>,
+}
+
+// ---------------------------------------------------------------------------
+// Researcher
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResearcherOutput {
+    /// Required on purpose: the CLI envelope must never parse as an empty radar.
+    pub radar: Vec<String>,
+    #[serde(default)]
+    pub opportunities: Vec<Opportunity>,
+}
+
+/// One thing the account could engage with; a suggestion for the operator.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Opportunity {
+    /// reply | quote | repost | watch
+    pub kind: String,
+    pub tweet_id: String,
+    pub url: String,
+    #[serde(default)]
+    pub author: String,
+    pub why: String,
+    #[serde(default)]
+    pub angle: String,
+    #[serde(default = "default_priority")]
+    pub priority: u8,
+    /// Filled by the worker from the search result, never by the model.
+    #[serde(default)]
+    pub parent_text: String,
+}
+
+fn default_priority() -> u8 {
+    2
 }
 
 /// One concrete edit to an account-layer field or setting, for the operator to apply.

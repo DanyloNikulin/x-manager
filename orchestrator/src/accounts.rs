@@ -38,6 +38,12 @@ pub struct EffectiveAccount {
     pub playbook: String,
     /// Depth cap the intake applies; repeated to the writer so the prompt and the cap agree.
     pub max_replies_per_conversation: u32,
+    /// What the researcher searches for on X; empty switches the researcher off.
+    pub research_terms: Vec<String>,
+    /// Researcher runs per local day (0 = off).
+    pub research_runs_per_day: u32,
+    /// The connected X handle, when known.
+    pub username: Option<String>,
     /// Working directory for the CLI agents.
     pub workspace: PathBuf,
     /// "api" or "files" — recorded in audits so the operator knows which brief was used.
@@ -65,6 +71,9 @@ impl EffectiveAccount {
             context,
             playbook: profile.playbook,
             max_replies_per_conversation: profile.max_replies_per_conversation,
+            research_terms: profile.research_terms,
+            research_runs_per_day: profile.research_runs_per_day,
+            username: profile.username,
             workspace,
             source: "api",
         }
@@ -91,6 +100,9 @@ impl EffectiveAccount {
             context,
             playbook,
             max_replies_per_conversation: crate::models::default_max_replies_per_conversation(),
+            research_terms: Vec::new(),
+            research_runs_per_day: 0,
+            username: None,
             workspace,
             source: "files",
         }
@@ -168,9 +180,15 @@ mod tests {
             plan_hour: 9,
             plan_timezone: "America/New_York".into(),
             max_replies_per_conversation: 3,
+            research_terms: vec!["agents".into()],
+            research_runs_per_day: 2,
+            username: Some("LoopedHuman".into()),
             stored: true,
         };
         let account = EffectiveAccount::from_profile(profile, PathBuf::from("."));
+        assert_eq!(account.research_terms, vec!["agents".to_owned()]);
+        assert_eq!(account.research_runs_per_day, 2);
+        assert_eq!(account.username.as_deref(), Some("LoopedHuman"));
         assert_eq!(
             account.context,
             "## profile.md\nwho\n\n## voice.md\nhow\n\n## strategy.md\nwhat\n\n## memory.md\nlearned"
@@ -190,6 +208,9 @@ mod tests {
         .expect("older API shape still parses");
         assert_eq!(profile.playbook, "");
         assert_eq!(profile.max_replies_per_conversation, 2);
+        assert!(profile.research_terms.is_empty());
+        assert_eq!(profile.research_runs_per_day, 0);
+        assert!(profile.username.is_none());
     }
 
     #[test]
@@ -210,6 +231,9 @@ mod tests {
             plan_hour: 9,
             plan_timezone: "UTC".into(),
             max_replies_per_conversation: 2,
+            research_terms: Vec::new(),
+            research_runs_per_day: 0,
+            username: None,
             stored: true,
         };
         assert!(EffectiveAccount::from_profile(profile, PathBuf::from(".")).paused);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isValidTimezone, validateProfilePatch } from '@/lib/account-profile-validation';
+import { isValidTimezone, parseResearchTerms, validateProfilePatch } from '@/lib/account-profile-validation';
 
 describe('validateProfilePatch', () => {
   it('accepts a full valid patch and normalises line endings', () => {
@@ -69,5 +69,20 @@ describe('reply lane fields', () => {
       const result = validateProfilePatch({ maxRepliesPerConversation: bad });
       expect(result.ok).toBe(false);
     }
+  });
+});
+
+describe('researcher fields', () => {
+  it('parses terms from an array or a comma-separated string and bounds the runs', () => {
+    expect(parseResearchTerms(' agents , AI utility bill,, agents ')).toEqual(['agents', 'AI utility bill']);
+    expect(parseResearchTerms(['a', ' b  c '])).toEqual(['a', 'b c']);
+    expect(parseResearchTerms([1])).toBeNull();
+    expect(parseResearchTerms('x'.repeat(61))).toBeNull();
+    expect(parseResearchTerms(Array.from({ length: 9 }, (_, i) => `t${i}`))).toBeNull();
+    const ok = validateProfilePatch({ researchTerms: 'agents, power', researchRunsPerDay: '3' });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.patch).toEqual({ researchTerms: ['agents', 'power'], researchRunsPerDay: 3 });
+    expect(validateProfilePatch({ researchRunsPerDay: 7 }).ok).toBe(false);
+    expect(validateProfilePatch({ researchTerms: 42 }).ok).toBe(false);
   });
 });

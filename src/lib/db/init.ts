@@ -755,6 +755,19 @@ export function ensureSchema(sqlite: SqliteDb): void {
     'max_replies_per_conversation',
     'ALTER TABLE account_profiles ADD COLUMN max_replies_per_conversation INTEGER NOT NULL DEFAULT 2',
   );
+  // Researcher: search terms (JSON array) and runs per day
+  ensureColumn(
+    sqlite,
+    'account_profiles',
+    'research_terms',
+    "ALTER TABLE account_profiles ADD COLUMN research_terms TEXT NOT NULL DEFAULT '[]'",
+  );
+  ensureColumn(
+    sqlite,
+    'account_profiles',
+    'research_runs_per_day',
+    'ALTER TABLE account_profiles ADD COLUMN research_runs_per_day INTEGER NOT NULL DEFAULT 0',
+  );
 
   // P1.4: Approval gating columns on campaign_tasks
   ensureColumn(

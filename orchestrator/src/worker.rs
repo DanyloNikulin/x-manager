@@ -666,6 +666,9 @@ mod tests {
             context: String::new(),
             playbook: String::new(),
             max_replies_per_conversation: 2,
+            research_terms: Vec::new(),
+            research_runs_per_day: 0,
+            username: None,
             workspace: std::path::PathBuf::from("."),
             source: "files",
         };
@@ -761,6 +764,9 @@ mod tests {
             context: "## voice.md\ncold".into(),
             playbook: "question: answer\npraise: ignore".into(),
             max_replies_per_conversation: 2,
+            research_terms: Vec::new(),
+            research_runs_per_day: 0,
+            username: None,
             workspace: std::path::PathBuf::from("."),
             source: "api",
         }
