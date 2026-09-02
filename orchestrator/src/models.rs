@@ -164,6 +164,9 @@ pub struct RecentPost {
     pub status: String,
     #[serde(default)]
     pub scheduled_time: Option<serde_json::Value>,
+    /// Set when the post is itself a reply; lets the worker show the writer what it already answered.
+    #[serde(default)]
+    pub reply_to_tweet_id: Option<String>,
 }
 
 /// `/api/scheduler/posts` has used both `posts` and `items` as its list key.

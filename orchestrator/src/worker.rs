@@ -210,8 +210,9 @@ fn exchange_depth(details: Option<&str>) -> u32 {
         .unwrap_or(0)
 }
 
-/// The playbook and the depth line for reply prompts; empty for posts and threads.
-fn reply_block(task: &WorkerTask, account: &EffectiveAccount, format: Format) -> String {
+/// The playbook, the depth line and the account's recent replies for reply prompts; empty
+/// for posts and threads.
+fn reply_block(task: &WorkerTask, account: &EffectiveAccount, format: Format, recent_replies: &[String]) -> String {
     if format != Format::Reply {
         return String::new();
     }
@@ -220,12 +221,41 @@ fn reply_block(task: &WorkerTask, account: &EffectiveAccount, format: Format) ->
     } else {
         account.playbook.trim()
     };
+    let recent = if recent_replies.is_empty() {
+        "(none yet)".to_owned()
+    } else {
+        recent_replies
+            .iter()
+            .map(|text| format!("- {}", text.split_whitespace().collect::<Vec<_>>().join(" ")))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     format!(
-        "<reply-playbook>\n{playbook}\n</reply-playbook>\nREPLY DEPTH (trusted): the account answers at most {} times in one chain; this chain already holds {} of its replies.\n",
+        "<reply-playbook>\n{playbook}\n</reply-playbook>\nREPLY DEPTH (trusted): the account answers at most {} times in one chain; this chain already holds {} of its replies.\nRECENT REPLIES BY THIS ACCOUNT (trusted; the last {} it published, newest first): a new reply must not reuse a sentence, a structure or a closing line from them, and must engage a specific claim or phrase of its own parent. A reply that could be pasted under any parent is not a reply.\n{recent}\n",
         account.max_replies_per_conversation,
-        exchange_depth(task.details.as_deref())
+        exchange_depth(task.details.as_deref()),
+        recent_replies.len()
     )
 }
+
+/// The account's most recent published replies (texts only), newest first, for the
+/// anti-repetition rule. A failure to load them is not fatal: the rule then has no examples.
+async fn recent_replies(manager: &ManagerClient, slot: u8) -> Vec<String> {
+    match manager.recent_posts(slot, 40).await {
+        Ok(posts) => posts
+            .into_iter()
+            .filter(|post| post.reply_to_tweet_id.as_deref().is_some_and(|id| !id.trim().is_empty()))
+            .map(|post| post.text)
+            .take(RECENT_REPLIES)
+            .collect(),
+        Err(error) => {
+            warn!(slot, error = %format!("{error:#}"), "could not load recent replies; writing without them");
+            Vec::new()
+        }
+    }
+}
+
+const RECENT_REPLIES: usize = 10;
 
 /// `format` and `max_tweets` requested by the planner in the task details.
 fn task_format(details: Option<&str>) -> (bool, u32) {
@@ -266,7 +296,8 @@ async fn process_claimed_task(
     let (is_thread, max_tweets) = task_format(task.details.as_deref());
     let format = Format::for_task(&task.task_type, is_thread);
     let spec = FormatSpec::load(&config.root, format).await?;
-    let reply_block = reply_block(task, &account, format);
+    let replies = if format == Format::Reply { recent_replies(manager, task.account_slot).await } else { Vec::new() };
+    let reply_block = reply_block(task, &account, format, &replies);
     let prompt = PromptContext {
         task,
         account: &account,
@@ -429,7 +460,7 @@ Check factual support, account fit, duplication/spam risk, tone, the format skil
 
 Then apply the position test to posts and threads: strip the numbers and the names from the candidate; what remains must be a position of the account, argued (a claim, the reasoning behind it, a consequence). A candidate that restates the source's facts and closes with a quip has no position and is a revise, with the instruction to argue rather than annotate. More than one figure in a post, or more than one per tweet, is the usual symptom.
 
-For a reply, judge the writer's triage against the reply playbook above: a class the playbook ignores or escalates that was answered anyway is a revise, and so is a reply that keeps arguing a chain the depth line says is already full. Praise and agreement are not answered unless the playbook says so.
+For a reply, judge the writer's triage against the reply playbook above: a class the playbook ignores or escalates that was answered anyway is a revise, and so is a reply that keeps arguing a chain the depth line says is already full. Praise and agreement are not answered unless the playbook says so. Then the sameness test: a reply that reuses a sentence, a structure or a closing line from the account's recent replies listed above, or that engages nothing specific in its parent (it could be pasted under any post), is a revise with the instruction to answer this parent in its own words.
 WRITER TRIAGE: {triage}
 
 TASK TYPE: {task_type}
@@ -846,14 +877,18 @@ mod tests {
         let task = task("reply", r#"{"reply_to_tweet_id":"123","reply_kind":"inbound","exchange_depth":1}"#);
         assert_eq!(exchange_depth(task.details.as_deref()), 1);
         assert_eq!(exchange_depth(Some("not json")), 0);
-        let block = reply_block(&task, &account, Format::Reply);
+        let recent = vec!["Correct. Also beside the point.".to_owned(), "That tracks if you ignore  the power bill.".to_owned()];
+        let block = reply_block(&task, &account, Format::Reply, &recent);
         assert!(block.contains("<reply-playbook>\nquestion: answer\npraise: ignore\n</reply-playbook>"));
         assert!(block.contains("at most 2 times in one chain; this chain already holds 1 of its replies"));
-        assert_eq!(reply_block(&task, &account, Format::Post), "");
+        assert!(block.contains("RECENT REPLIES BY THIS ACCOUNT (trusted; the last 2 it published, newest first)"));
+        assert!(block.contains("- Correct. Also beside the point.\n- That tracks if you ignore the power bill."));
+        assert!(reply_block(&task, &account, Format::Reply, &[]).contains("(none yet)"));
+        assert_eq!(reply_block(&task, &account, Format::Post, &recent), "");
 
         let mut without = account.clone();
         without.playbook = "   ".into();
-        assert!(reply_block(&task, &without, Format::Reply).contains("no playbook configured"));
+        assert!(reply_block(&task, &without, Format::Reply, &[]).contains("no playbook configured"));
 
         let spec = reply_spec();
         let ctx = PromptContext {
