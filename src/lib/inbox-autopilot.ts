@@ -4,7 +4,8 @@ import { campaignTasks, campaigns, engagementInbox } from '@/lib/db/schema';
 import { ACCOUNT_SLOTS, type AccountSlot } from '@/lib/account-slots';
 import { getAccountProfile } from '@/lib/account-profiles';
 import { requireConnectedAccount } from '@/lib/engagement-ops';
-import { fetchMentionsTimeline } from '@/lib/twitter-api-client';
+import { fetchMentionsV2 } from '@/lib/twitter-api-client';
+import { newestTweetId } from '@/lib/mentions-v2';
 import { emitEvent } from '@/lib/events';
 import { deliverEventToWebhooks } from '@/lib/webhook-delivery';
 import { logger } from '@/lib/logger';
@@ -38,9 +39,25 @@ export type InboxAutopilotSlotStats = {
   replyTasks: number;
 };
 
+/** Newest mention already stored for the slot; used as the `since_id` cursor so reads stay small. */
+export async function newestStoredMentionId(slot: AccountSlot): Promise<string | null> {
+  const rows = await db
+    .select({ sourceId: engagementInbox.sourceId })
+    .from(engagementInbox)
+    .where(and(eq(engagementInbox.accountSlot, slot), eq(engagementInbox.sourceType, 'mention')));
+  return newestTweetId(rows.map((row) => row.sourceId));
+}
+
 export async function syncMentionsForSlot(slot: AccountSlot, count = MENTION_FETCH_COUNT): Promise<{ fetched: number; created: number }> {
   const account = await requireConnectedAccount(slot);
-  const mentions = await fetchMentionsTimeline(account.twitterAccessToken, account.twitterAccessTokenSecret, { count });
+  if (!account.twitterUserId) {
+    throw new Error(`Account slot ${slot} has no X user id; reconnect the account.`);
+  }
+  const sinceId = await newestStoredMentionId(slot);
+  const mentions = await fetchMentionsV2(account.twitterAccessToken, account.twitterAccessTokenSecret, account.twitterUserId, {
+    maxResults: count,
+    sinceId,
+  });
   let created = 0;
   for (const mention of mentions) {
     if (!mention.sourceId) continue;

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { engagementInbox } from '@/lib/db/schema';
-import { fetchMentionsTimeline, listDirectMessages } from '@/lib/twitter-api-client';
+import { fetchMentionsV2, listDirectMessages } from '@/lib/twitter-api-client';
 import { parseAccountSlot, requireConnectedAccount } from '@/lib/engagement-ops';
 import { emitEvent } from '@/lib/events';
 import { deliverEventToWebhooks } from '@/lib/webhook-delivery';
@@ -89,11 +89,16 @@ export async function POST(req: Request) {
     let dmCount = 0;
 
     if (includeMentions) {
-      const mentions = await fetchMentionsTimeline(
+      if (!account.twitterUserId) {
+        return NextResponse.json({ error: `Account slot ${accountSlot} has no X user id; reconnect the account.` }, { status: 400 });
+      }
+      // v2 mentions: the v1.1 mentions_timeline endpoint is not available on basic/PAYG access.
+      const mentions = await fetchMentionsV2(
         account.twitterAccessToken,
         account.twitterAccessTokenSecret,
+        account.twitterUserId,
         {
-          count,
+          maxResults: count,
           sinceId: sinceId || undefined,
         },
       );

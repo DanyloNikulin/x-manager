@@ -1,6 +1,7 @@
 import OAuth from 'oauth-1.0a';
 import CryptoJS from 'crypto-js';
 import { getResolvedXConfig, type ResolvedXConfig } from './x-config';
+import { mapMentionsV2, type MentionItem, type MentionsV2Response } from './mentions-v2';
 
 interface TwitterApiError {
   message: string;
@@ -497,6 +498,43 @@ export async function fetchMentionsTimeline(
       raw: item,
     }))
     .filter((item) => item.sourceId && item.text);
+}
+
+/**
+ * Mentions via X API v2 (`GET /2/users/:id/mentions`). The v1.1 `mentions_timeline`
+ * endpoint above is not available on the pay-per-use / basic access tiers, this one is.
+ * Pass `sinceId` (the newest mention already stored) so only new posts are read and billed.
+ */
+export async function fetchMentionsV2(
+  accessToken: string,
+  accessTokenSecret: string,
+  userId: string,
+  options: {
+    maxResults?: number;
+    sinceId?: string | null;
+    config?: ResolvedXConfig;
+  } = {},
+): Promise<MentionItem[]> {
+  if (!userId || !/^\d+$/.test(userId)) {
+    throw new Error('A numeric X user id is required to read mentions via API v2.');
+  }
+  const config = await resolveConfig(options.config);
+  const maxResults = Math.max(5, Math.min(100, Number(options.maxResults || 25)));
+  const params = new URLSearchParams({
+    max_results: String(maxResults),
+    'tweet.fields': 'created_at,author_id,conversation_id,in_reply_to_user_id,referenced_tweets',
+    expansions: 'author_id',
+    'user.fields': 'username,name',
+  });
+  if (options.sinceId) params.set('since_id', options.sinceId);
+
+  const payload = await signedGetWithBaseFallback<MentionsV2Response>({
+    pathFactory: (baseUrl) => `${baseUrl}/2/users/${encodeURIComponent(userId)}/mentions?${params.toString()}`,
+    accessToken,
+    accessTokenSecret,
+    config,
+  });
+  return mapMentionsV2(payload);
 }
 
 export async function listDirectMessages(
