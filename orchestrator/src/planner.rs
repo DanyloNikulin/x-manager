@@ -160,8 +160,9 @@ pub fn campaign_name(slot: u8) -> String {
 
 fn campaign_objective(slot: u8) -> String {
     format!(
-        "Original posts for account slot {slot} in its own register, one sourced angle per task. \
-         Use only the facts in the task's source notes; no calls to action; no claims beyond the sources."
+        "Original posts and replies for account slot {slot} in its own register, one sourced angle per task. \
+         Numbers and quotations only from the task's source notes; general context is fine when it is \
+         uncontroversial and carries no unsourced figures; no calls to action."
     )
 }
 

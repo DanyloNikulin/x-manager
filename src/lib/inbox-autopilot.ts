@@ -126,7 +126,7 @@ async function ensureAutopilotCampaign(slot: AccountSlot): Promise<number> {
     .insert(campaigns)
     .values({
       name,
-      objective: `Original posts and replies for account slot ${slot} in its own register, one sourced angle per task. Use only the facts in the task's source notes; no calls to action; no claims beyond the sources.`,
+      objective: `Original posts and replies for account slot ${slot} in its own register, one sourced angle per task. Numbers and quotations only from the task's source notes; general context is fine when it is uncontroversial and carries no unsourced figures; no calls to action.`,
       accountSlot: slot,
       status: 'active',
     })
