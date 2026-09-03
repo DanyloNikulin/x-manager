@@ -23,8 +23,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   } catch {
     return NextResponse.json({ error: 'Request body must be JSON.' }, { status: 400 });
   }
-  if (body.action !== 'approve' && body.action !== 'reject') {
-    return NextResponse.json({ error: 'action must be approve or reject.' }, { status: 400 });
+  if (body.action !== 'approve' && body.action !== 'reject' && body.action !== 'manual') {
+    return NextResponse.json({ error: 'action must be approve, reject, or manual.' }, { status: 400 });
   }
   try {
     const result = await reviewTask(taskId, body.action);

@@ -38,6 +38,10 @@ export type OverviewTask = {
   score: number | null;
   verdict: string | null;
   publicationMode: string | null;
+  /** `inbound` (a mention) or `outbound` (researcher-suggested); null for posts. */
+  replyKind: string | null;
+  /** The worker's draft for a task waiting for review, so the operator can copy it. */
+  draftText: string | null;
 };
 
 export type OverviewDraft = {

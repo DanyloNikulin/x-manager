@@ -48,8 +48,27 @@ afterAll(() => {
 });
 
 describe('POST /api/agent/tasks/:id/review', () => {
-  it('approves a reply: schedules it with its target, deletes the draft, closes the task', async () => {
+  it('refuses to schedule an outbound reply (X only allows replies to mentions) and lets the operator mark it posted by hand', async () => {
     const id = task('reply');
+    draft(id, 'Rural wires got paid back by the farms they reached.', '2095272264681844840');
+    const refused = await call(id, 'approve');
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toMatch(/mention/);
+    expect(status(id)).toBe('waiting_approval');
+    expect(draftCount()).toBe(1);
+    const manual = await call(id, 'manual');
+    expect(manual.status).toBe(200);
+    expect(status(id)).toBe('done');
+    expect(draftCount()).toBe(0);
+    const output = JSON.parse((sqlite.prepare('SELECT output FROM campaign_tasks WHERE id = ?').get(id) as { output: string }).output) as { review: { action: string; text: string } };
+    expect(output.review).toMatchObject({ action: 'manual', text: 'Rural wires got paid back by the farms they reached.' });
+  });
+
+  it('approves a reply to a mention: schedules it with its target, deletes the draft, closes the task', async () => {
+    const id = task('reply');
+    sqlite
+      .prepare(`INSERT INTO engagement_inbox (account_slot, source_type, source_id, text, raw_payload, received_at, status, assigned_to) VALUES (1, 'mention', '2095272264681844840', 'hey @LoopedHuman', '{}', unixepoch(), 'new', 'subscription-agent')`)
+      .run();
     draft(id, 'Rural wires got paid back by the farms they reached.', '2095272264681844840');
     const response = await call(id, 'approve');
     expect(response.status).toBe(200);

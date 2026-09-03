@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CalendarClock, Cpu, ExternalLink, Eye, FileText, Heart, KeyRound, Loader2, MessageCircle, Pause, Play, Radio, RefreshCw, Repeat2, RotateCcw, Settings2, TerminalSquare, Check, X } from 'lucide-react';
+import { AlertTriangle, CalendarClock, Cpu, ExternalLink, Eye, FileText, Heart, KeyRound, Loader2, MessageCircle, Pause, Play, Radio, RefreshCw, Repeat2, RotateCcw, Settings2, TerminalSquare, Check, X, Copy } from 'lucide-react';
 import type { Overview as OverviewPayload, OverviewPost, OverviewTask, SlotOverview } from '@/lib/overview-model';
 
 /**
@@ -190,10 +190,24 @@ function taskLabel(task: OverviewTask): string {
   return task.status;
 }
 
-function TaskRow({ task, now, busy, onReview }: { task: OverviewTask; now: number; busy?: string | null; onReview?: (taskId: number, action: 'approve' | 'reject') => void }) {
+function TaskRow({ task, now, busy, onReview }: { task: OverviewTask; now: number; busy?: string | null; onReview?: (taskId: number, action: 'approve' | 'reject' | 'manual') => void }) {
   const tone: Tone = task.status === 'waiting_approval' ? 'warn' : task.status === 'in_progress' ? 'good' : 'muted';
   const reviewable = task.status === 'waiting_approval' && Boolean(onReview);
   const working = busy === `review-${task.id}`;
+  // X's API tier only lets the account reply to posts that mention it: an outbound reply is
+  // drafted for the operator to paste, never scheduled.
+  const byHand = task.taskType === 'reply' && task.replyKind !== 'inbound';
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    if (!task.draftText) return;
+    try {
+      await navigator.clipboard.writeText(task.draftText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt('Copy the reply:', task.draftText);
+    }
+  };
   return (
     <li className="flex items-start gap-2 text-sm">
       <Badge tone={tone}>{taskLabel(task)}</Badge>
@@ -205,7 +219,20 @@ function TaskRow({ task, now, busy, onReview }: { task: OverviewTask; now: numbe
           {task.updatedAt ? ` · ${relative(task.updatedAt, now)}` : ''}
         </span>
       </span>
-      {reviewable && (
+      {reviewable && byHand && (
+        <span className="flex shrink-0 items-center gap-1">
+          <button type="button" onClick={() => void copy()} disabled={!task.draftText} className={primaryButton} title="Copy the drafted reply; post it yourself from X (the API cannot reply to posts that do not mention this account)">
+            {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'Copied' : 'Copy reply'}
+          </button>
+          <button type="button" onClick={() => onReview?.(task.id, 'manual')} disabled={Boolean(busy)} className={secondaryButton} title="Close the task: you posted the reply by hand">
+            {working ? <Loader2 size={14} className="animate-spin" /> : null} Posted by hand
+          </button>
+          <button type="button" onClick={() => onReview?.(task.id, 'reject')} disabled={Boolean(busy)} className={secondaryButton} title="Delete the draft and skip the task">
+            <X size={14} /> Reject
+          </button>
+        </span>
+      )}
+      {reviewable && !byHand && (
         <span className="flex shrink-0 items-center gap-1">
           <button type="button" onClick={() => onReview?.(task.id, 'approve')} disabled={Boolean(busy)} className={primaryButton} title="Schedule the worker's draft and close the task">
             {working ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Approve
@@ -251,7 +278,7 @@ function SlotCard({
   onOpenConsole: (slot: number) => void;
   onSetStatus: (slot: number, status: 'ready' | 'paused') => void;
   onReplan: (slot: number) => void;
-  onReview: (taskId: number, action: 'approve' | 'reject') => void;
+  onReview: (taskId: number, action: 'approve' | 'reject' | 'manual') => void;
 }) {
   const handle = slot.username ? `@${slot.username}` : `Slot ${slot.slot}`;
   const timeZone = slot.planTimezone || 'UTC';
@@ -545,8 +572,9 @@ export default function Overview({ onNavigate, onOpenConsole }: OverviewProps) {
   );
 
   const review = useCallback(
-    async (taskId: number, action: 'approve' | 'reject') => {
+    async (taskId: number, action: 'approve' | 'reject' | 'manual') => {
       if (action === 'reject' && !window.confirm(`Reject task ${taskId}? Its draft is deleted and the task is skipped.`)) return;
+      if (action === 'manual' && !window.confirm(`Mark task ${taskId} as posted by hand? Its draft is removed and the task closes.`)) return;
       setBusy(`review-${taskId}`);
       try {
         const response = await fetch(`/api/agent/tasks/${taskId}/review`, {
@@ -556,7 +584,7 @@ export default function Overview({ onNavigate, onOpenConsole }: OverviewProps) {
         });
         const body = (await response.json()) as { error?: string; scheduledFor?: string | null; status?: string };
         if (!response.ok) throw new Error(body.error || 'Failed to review the task.');
-        flash(action === 'approve' ? `Approved: scheduled for ${body.scheduledFor ? new Date(body.scheduledFor).toLocaleString() : 'the next slot'}.` : `Task ${taskId} rejected; its draft is gone.`);
+        flash(action === 'approve' ? `Approved: scheduled for ${body.scheduledFor ? new Date(body.scheduledFor).toLocaleString() : 'the next slot'}.` : action === 'manual' ? `Task ${taskId} closed as posted by hand.` : `Task ${taskId} rejected; its draft is gone.`);
         await load(true);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to review the task.');

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, like, sql } from 'drizzle-orm';
 
 import { db } from '@/lib/db';
 import { campaignTasks, campaigns, draftPosts, postMetrics, scheduledPosts } from '@/lib/db/schema';
@@ -76,7 +76,17 @@ async function loadTasks(campaignId: number): Promise<TaskRow[]> {
     .limit(TASK_SCAN);
 }
 
-function toTask(row: TaskRow): OverviewTask {
+function replyKindOf(details: string | null): string | null {
+  if (!details) return null;
+  try {
+    const parsed = JSON.parse(details) as { reply_kind?: unknown };
+    return typeof parsed.reply_kind === 'string' ? parsed.reply_kind : null;
+  } catch {
+    return null;
+  }
+}
+
+function toTask(row: TaskRow, draftText: string | null = null): OverviewTask {
   const summary = summarizeTaskOutput(row.output);
   return {
     id: row.id,
@@ -88,7 +98,23 @@ function toTask(row: TaskRow): OverviewTask {
     score: summary.score,
     verdict: summary.verdict,
     publicationMode: summary.publicationMode,
+    replyKind: row.taskType === 'reply' ? replyKindOf(row.details) ?? 'outbound' : null,
+    draftText,
   };
+}
+
+/** Worker drafts of this slot keyed by the task they came from (`...:task:<id>` sources). */
+async function loadTaskDrafts(slot: AccountSlot): Promise<Map<number, string>> {
+  const rows = await db
+    .select({ text: draftPosts.text, source: draftPosts.source })
+    .from(draftPosts)
+    .where(and(eq(draftPosts.accountSlot, slot), like(draftPosts.source, 'subscription-worker:%')));
+  const byTask = new Map<number, string>();
+  for (const row of rows) {
+    const match = row.source?.match(/:task:(\d+)$/);
+    if (match) byTask.set(Number(match[1]), row.text);
+  }
+  return byTask;
 }
 
 export function findPlanMarker(tasks: TaskRow[], day: string): PlanMarker | null {
@@ -191,8 +217,9 @@ async function buildSlot(profile: AccountProfileView, now: Date): Promise<SlotOv
   const inFlight = tasks
     .filter((task) => (IN_FLIGHT_STATUSES as readonly string[]).includes(task.status) && task.assignedAgent !== PLANNER_AGENT)
     .slice(0, 10)
-    .map(toTask);
-  const waitingApproval = tasks.filter((task) => task.status === 'waiting_approval').slice(0, 10).map(toTask);
+    .map((task) => toTask(task));
+  const taskDrafts = await loadTaskDrafts(slot);
+  const waitingApproval = tasks.filter((task) => task.status === 'waiting_approval').slice(0, 10).map((task) => toTask(task, taskDrafts.get(task.id) ?? null));
 
   return {
     slot,

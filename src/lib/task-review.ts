@@ -13,7 +13,12 @@ import { claimAndScheduleDraft, DraftScheduleError } from '@/lib/draft-schedule'
  * draft and closes the task as skipped. Both are recorded in the task output.
  */
 
-export type ReviewAction = 'approve' | 'reject';
+/**
+ * `approve` schedules the draft; `reject` discards it; `manual` records that the operator
+ * posted the draft by hand (the X API tier only lets the account reply to posts that
+ * mention it or its own posts, so an outbound reply can never be scheduled).
+ */
+export type ReviewAction = 'approve' | 'reject' | 'manual';
 
 export class ReviewError extends Error {
   constructor(message: string, readonly status: number) {
@@ -46,6 +51,14 @@ export function findTaskDraft(taskId: number, slot: AccountSlot): DraftRow | nul
     )
     .get(slot, `%:task:${taskId}`) as DraftRow | undefined;
   return row ?? null;
+}
+
+/** True when the tweet is a mention of this account that the inbox holds (a reply to it is allowed by X). */
+export function isInboundMention(slot: AccountSlot, tweetId: string): boolean {
+  const row = sqlite
+    .prepare(`SELECT id FROM engagement_inbox WHERE account_slot = ? AND source_type = 'mention' AND source_id = ? LIMIT 1`)
+    .get(slot, tweetId) as { id: number } | undefined;
+  return Boolean(row);
 }
 
 function mergedOutput(output: string | null, review: Record<string, unknown>): string {
@@ -110,7 +123,28 @@ export async function reviewTask(
     return { status: 'skipped', scheduledPostId: null, scheduledFor: null, threadId: null };
   }
 
+  if (action === 'manual') {
+    sqlite.transaction(() => {
+      if (draft) sqlite.prepare('DELETE FROM draft_posts WHERE id = ?').run(draft.id);
+      const update = sqlite
+        .prepare(`UPDATE campaign_tasks SET status = 'done', output = ?, updated_at = unixepoch() WHERE id = ? AND status = 'waiting_approval'`)
+        .run(mergedOutput(task.output, { action: 'manual', at, draft_id: draft?.id ?? null, text: draft?.text ?? null }), taskId);
+      if (update.changes !== 1) throw new ReviewError('Task changed meanwhile; reload.', 409);
+    })();
+    return { status: 'done', scheduledPostId: null, scheduledFor: null, threadId: null };
+  }
+
   if (!draft) throw new ReviewError('This task has no draft left to approve (it may have been scheduled or deleted from Drafts).', 409);
+
+  // The X API on this access tier refuses replies to posts that do not mention the account
+  // (and are not its own), so only a reply to an inbound mention can be scheduled. Anything
+  // else the operator posts by hand and marks `manual`.
+  if (draft.reply_to_tweet_id && !isInboundMention(slot, draft.reply_to_tweet_id)) {
+    throw new ReviewError(
+      'X only lets this account reply to posts that mention it. Copy the reply, post it by hand from X, then mark it "Posted by hand".',
+      409,
+    );
+  }
 
   // What gets scheduled: one row for a post or reply, one row per tweet for a thread. The
   // publish time follows the worker's auto path; a thread draft with fewer than two tweets
