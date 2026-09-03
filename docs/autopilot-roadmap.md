@@ -124,7 +124,7 @@ inbox, to a draft, to an approved post.
 
 ## Status (2026-09-03)
 
-Delivered and live on the station: ring 1 (digest, `GET /api/agent/accounts/:slot/digest`), ring 2 (weekly analyst, proposals in the console), ring 3 (reply playbook, writer triage, `skipped` outcome, depth cap; the live mention test is still pending a real mention), ring 4 (researcher: budgeted X radar, suggestions only, outbound reply tasks under approval, Radar tab). Rings 5 and 6 are not started. Details per role in `docs/subscription-worker.md`.
+Delivered and live on the station: ring 1 (digest, `GET /api/agent/accounts/:slot/digest`), ring 2 (weekly analyst, proposals in the console), ring 3 (reply playbook, writer triage, `skipped` outcome, depth cap; the live mention test is still pending a real mention), ring 4 (researcher: budgeted X radar, suggestions only, Radar tab; outbound replies and quotes are hand-paste by decision of 2026-09-03, because since 2026-02-23 the X API lets self-serve tiers reply only to posts that mention the account). Rings 5 and 6 are not started. Details per role in `docs/subscription-worker.md`.
 
 ## Rings, in order
 
