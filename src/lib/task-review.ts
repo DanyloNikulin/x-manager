@@ -130,6 +130,10 @@ export async function reviewTask(
   // together or not at all, so a concurrent rejection (or any failure) can never leave a
   // scheduled thread behind a task that is not done.
   const scheduledPostId = sqlite.transaction(() => {
+    // Claim the draft first: it must still exist with the text that was planned. If the
+    // Drafts page scheduled or deleted it meanwhile, nothing below happens.
+    const claimed = sqlite.prepare('DELETE FROM draft_posts WHERE id = ? AND text IS ?').run(draft.id, draft.text);
+    if (claimed.changes !== 1) throw new ReviewError('The draft was scheduled or deleted from the Drafts page meanwhile; reload.', 409);
     const insert = sqlite.prepare(
       `INSERT INTO scheduled_posts (account_slot, text, dedupe_key, media_urls, reply_to_tweet_id, thread_id, thread_index, scheduled_time, status, tags, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, unixepoch(), unixepoch())`,
@@ -149,7 +153,6 @@ export async function reviewTask(
       );
       if (index === 0) firstId = Number(inserted.lastInsertRowid);
     });
-    sqlite.prepare('DELETE FROM draft_posts WHERE id = ?').run(draft.id);
     const update = sqlite
       .prepare(`UPDATE campaign_tasks SET status = 'done', output = ?, updated_at = unixepoch() WHERE id = ? AND status = 'waiting_approval'`)
       .run(mergedOutput(task.output, { action: 'approve', at, scheduled_for: scheduledAt.toISOString(), scheduled_post_id: firstId, thread_id: threadId, tweets: tweets.length }), taskId);

@@ -106,6 +106,22 @@ describe('POST /api/agent/tasks/:id/review', () => {
     sqlite.prepare('DELETE FROM draft_posts').run();
   });
 
+  it('never double-schedules a draft the Drafts page consumed meanwhile', async () => {
+    const before = (sqlite.prepare('SELECT count(*) AS n FROM scheduled_posts').get() as { n: number }).n;
+    const id = task('reply');
+    draft(id, 'answer', '4242');
+    await expect(
+      reviewTask(id, 'approve', {
+        beforeWrite: () => {
+          // The Drafts page scheduled and deleted it (or edited its text) during planning.
+          sqlite.prepare('DELETE FROM draft_posts').run();
+        },
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect((sqlite.prepare('SELECT count(*) AS n FROM scheduled_posts').get() as { n: number }).n).toBe(before);
+    expect(status(id)).toBe('waiting_approval');
+  });
+
   it('refuses what cannot be reviewed', async () => {
     const noDraft = task('reply');
     expect((await call(noDraft, 'approve')).status).toBe(409);
