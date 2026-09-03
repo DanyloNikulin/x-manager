@@ -186,39 +186,18 @@ export default function DraftManager() {
     setError('');
     try {
       const scheduledTime = new Date(scheduleDateTime).toISOString();
-      if (isThreadDraftSource(draft.source)) {
-        // Worker threads are stored as one draft; rebuild the thread for the scheduler.
-        const tweets = splitThreadDraft(draft.text);
-        const threadRes = await fetch('/api/scheduler/thread', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            account_slot: draft.accountSlot,
-            scheduled_time: scheduledTime,
-            dedupe: true,
-            tweets: tweets.map((text) => ({ text })),
-          }),
-        });
-        if (!threadRes.ok) {
-          const body = await threadRes.json();
-          throw new Error(body.error || 'Failed to schedule thread.');
-        }
-      } else {
-        const fd = new FormData();
-        fd.append('text', draft.text);
-        fd.append('scheduled_time', scheduledTime);
-        fd.append('account_slot', String(draft.accountSlot));
-        if (draft.replyToTweetId) fd.append('reply_to_tweet_id', draft.replyToTweetId);
-
-        const postRes = await fetch('/api/scheduler/posts', { method: 'POST', body: fd });
-        if (!postRes.ok) {
-          const body = await postRes.json();
-          throw new Error(body.error || 'Failed to schedule post.');
-        }
+      // One request, one transaction on the server: the draft is claimed and the scheduled
+      // rows are written together (a reply keeps its target, a worker thread is rebuilt, the
+      // worker task it came from is closed), so nothing can schedule the same draft twice.
+      const res = await fetch(`/api/drafts/${draft.id}/schedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scheduled_time: scheduledTime }),
+      });
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error || 'Failed to schedule draft.');
       }
-
-      // On success, delete the draft
-      await fetch(`/api/drafts/${draft.id}`, { method: 'DELETE' });
 
       closeSchedule();
       await fetchDrafts();

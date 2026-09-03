@@ -1,11 +1,10 @@
-import { randomUUID } from 'crypto';
-
 import { sqlite } from '@/lib/db';
 import { isAccountSlot, type AccountSlot } from '@/lib/account-slots';
 import { checkPolicy, getSlotPolicy } from '@/lib/policy';
 import { suggestMultipleOptimalTimes, suggestOptimalTime } from '@/lib/optimal-time';
 import { planWorkerPublishTime } from '@/lib/worker-publish';
-import { isThreadDraftSource, splitThreadDraft } from '@/lib/thread-draft';
+import { isThreadDraftSource } from '@/lib/thread-draft';
+import { claimAndScheduleDraft, DraftScheduleError } from '@/lib/draft-schedule';
 
 /**
  * The operator's decision on a worker task that waits for review: approve publishes the
@@ -113,51 +112,33 @@ export async function reviewTask(
 
   if (!draft) throw new ReviewError('This task has no draft left to approve (it may have been scheduled or deleted from Drafts).', 409);
 
-  // What gets scheduled: one row for a post or reply, one row per tweet for a thread
-  // (same shape the thread scheduler writes: shared thread_id, ascending thread_index, the
-  // scheduler service chains index > 0 as replies to the previous tweet once it is posted).
+  // What gets scheduled: one row for a post or reply, one row per tweet for a thread. The
+  // publish time follows the worker's auto path; a thread draft with fewer than two tweets
+  // is refused inside the claim.
   const isThread = isThreadDraftSource(draft.source);
-  const tweets = isThread ? splitThreadDraft(draft.text) : [draft.text];
-  if (isThread && tweets.length < 2) throw new ReviewError('The thread draft has fewer than two tweets.', 409);
   const actionType = !isThread && draft.reply_to_tweet_id ? 'reply' : 'post';
   const scheduledAt = await planTime(slot, actionType, now);
   const scheduledEpoch = Math.floor(scheduledAt.getTime() / 1000);
-  const threadId = isThread ? randomUUID() : null;
 
   options.beforeWrite?.();
 
-  // One transaction: the rows, the draft deletion and the guarded task update commit
-  // together or not at all, so a concurrent rejection (or any failure) can never leave a
-  // scheduled thread behind a task that is not done.
-  const scheduledPostId = sqlite.transaction(() => {
-    // Claim the draft first: it must still exist with the text that was planned. If the
-    // Drafts page scheduled or deleted it meanwhile, nothing below happens.
-    const claimed = sqlite.prepare('DELETE FROM draft_posts WHERE id = ? AND text IS ?').run(draft.id, draft.text);
-    if (claimed.changes !== 1) throw new ReviewError('The draft was scheduled or deleted from the Drafts page meanwhile; reload.', 409);
-    const insert = sqlite.prepare(
-      `INSERT INTO scheduled_posts (account_slot, text, dedupe_key, media_urls, reply_to_tweet_id, thread_id, thread_index, scheduled_time, status, tags, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, unixepoch(), unixepoch())`,
-    );
-    let firstId: number | null = null;
-    tweets.forEach((text, index) => {
-      const inserted = insert.run(
-        slot,
-        text,
-        isThread ? `subscription-worker:review:task:${taskId}:${index}` : `subscription-worker:review:task:${taskId}`,
-        index === 0 ? (draft.media_urls ?? '[]') : '[]',
-        isThread ? null : draft.reply_to_tweet_id,
-        threadId,
-        isThread ? index : null,
-        scheduledEpoch,
-        JSON.stringify(['subscription-worker', 'approved']),
-      );
-      if (index === 0) firstId = Number(inserted.lastInsertRowid);
-    });
+  // One transaction: the draft is claimed first (it must still exist with the text that was
+  // planned, so a Drafts-page action meanwhile makes this fail with nothing written), then
+  // the rows are inserted and the task is updated under its status guard.
+  const scheduled = sqlite.transaction(() => {
+    const written = (() => {
+      try {
+        return claimAndScheduleDraft(draft.id, scheduledEpoch, `subscription-worker:review:task:${taskId}`, draft.text, ['subscription-worker', 'approved']);
+      } catch (error) {
+        if (error instanceof DraftScheduleError) throw new ReviewError(error.message, error.status);
+        throw error;
+      }
+    })();
     const update = sqlite
       .prepare(`UPDATE campaign_tasks SET status = 'done', output = ?, updated_at = unixepoch() WHERE id = ? AND status = 'waiting_approval'`)
-      .run(mergedOutput(task.output, { action: 'approve', at, scheduled_for: scheduledAt.toISOString(), scheduled_post_id: firstId, thread_id: threadId, tweets: tweets.length }), taskId);
+      .run(mergedOutput(task.output, { action: 'approve', at, scheduled_for: scheduledAt.toISOString(), scheduled_post_id: written.scheduledPostId, thread_id: written.threadId, tweets: written.tweets }), taskId);
     if (update.changes !== 1) throw new ReviewError('Task changed while approving; reload.', 409);
-    return firstId;
+    return written;
   })();
-  return { status: 'done', scheduledPostId, scheduledFor: scheduledAt.toISOString(), threadId };
+  return { status: 'done', scheduledPostId: scheduled.scheduledPostId, scheduledFor: scheduledAt.toISOString(), threadId: scheduled.threadId };
 }
